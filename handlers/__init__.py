@@ -18,6 +18,12 @@ def is_gateway_network(connector_name: str) -> bool:
 
     connector_lower = connector_name.lower()
 
+    # CEX testnet/sandbox venues (binance_perpetual_testnet, derive_testnet, ...)
+    # carry "testnet" in the name but are not Gateway networks, which are
+    # hyphenated ids like solana-mainnet-beta.
+    if connector_lower.endswith(("_testnet", "_sandbox")):
+        return False
+
     # Known Gateway network patterns
     gateway_patterns = [
         "solana",

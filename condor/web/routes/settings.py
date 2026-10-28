@@ -927,15 +927,11 @@ async def list_connectors(
             status_code=502, detail="Cannot fetch connectors from server"
         )
 
-    # API returns plain strings — filter out testnet/gateway connectors
-    names = [
-        c
-        for c in raw
-        if isinstance(c, str)
-        and "testnet" not in c.lower()
-        and "sandbox" not in c.lower()
-        and "/" not in c
-    ]
+    # API returns plain strings — filter out gateway connectors. Testnet and
+    # sandbox venues (binance_perpetual_testnet, ...) stay in: they are the only
+    # way to trade on a paper market, since Hummingbot's *_paper_trade
+    # connectors cannot run V2 controllers.
+    names = [c for c in raw if isinstance(c, str) and "/" not in c]
     if type:
         if type.lower() == "perpetual":
             names = [c for c in names if "perpetual" in c.lower()]
