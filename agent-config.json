@@ -1,0 +1,42 @@
+{
+  "$schema": "./agent-config.schema.json",
+  "_about": "Condor agent runtime config, read like Albatross's agent.config.json. Edits apply on the next tick or turn; no restart. Check with: uv run python -m condor.agent_config",
+
+  "model": "openrouter:nvidia/nemotron-3.5-super-vl:free",
+
+  "maxSteps": 1000,
+
+  "approvalPolicy": "always",
+  "alwaysAllow": [
+    "manage_bots:deploy",
+    "manage_bots:update_config",
+    "manage_bots:start_controllers",
+    "manage_bots:stop_controllers",
+    "manage_bots:stop_bot",
+    "create_position_executor",
+    "create_grid_executor",
+    "create_dca_executor",
+    "create_order_executor",
+    "stop_executor",
+    "set_account_position_mode_and_leverage",
+    "control_agent:start"
+  ],
+
+  "thinking": {
+    "effort": "high",
+    "exclude": false
+  },
+  "maxOutputTokens": null,
+  "tickTimeoutSec": 900,
+
+  "budget": {
+    "enabled": true,
+    "appliesTo": "free-models",
+    "dailyRequestCap": 1000,
+    "reserveRequests": 50,
+    "requestsPerMinute": 18,
+    "perRunRequestCap": 100,
+    "pacing": true,
+    "assumedRequestsPerTick": 8
+  }
+}
