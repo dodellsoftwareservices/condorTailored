@@ -111,6 +111,24 @@ def _isolated_runtime_root(tmp_path, monkeypatch):
         monkeypatch.delenv(name, raising=False)
     agent_config.reset_cache()
     budget.reset_governor()
+
+    # ``_lift_chat_routines`` (migration v6) moves every *untracked* file under
+    # ``<_PROJECT_ROOT>/routines`` into the local root. A migration test redirects
+    # the local root to tmp and calls ``ensure_migrated()``, which leaves the
+    # marker unwritten, so the lift ran against the developer's real checkout and
+    # carried their uncommitted routines into a directory pytest then deleted.
+    # Only a test that has pointed ``_PROJECT_ROOT`` at a root of its own gets the
+    # real lift; against the live checkout it does nothing.
+    from condor import migrations
+
+    live_checkout = migrations.paths._PROJECT_ROOT
+    lift_chat_routines = migrations._lift_chat_routines
+
+    def lift_unless_live_checkout(report):
+        if migrations.paths._PROJECT_ROOT != live_checkout:
+            lift_chat_routines(report)
+
+    monkeypatch.setattr(migrations, "_lift_chat_routines", lift_unless_live_checkout)
     yield
     agent_config.reset_cache()
     budget.reset_governor()
