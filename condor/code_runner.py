@@ -46,6 +46,7 @@ import traceback
 import condor.reports as reports
 from condor.code_runs import CodeRun, get_code_run_store, new_run_id
 from condor.memory.paths import CHAT_SLUG
+from condor.venues import data_venue_client
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +234,11 @@ async def execute_code(
     namespace = {
         "__name__": "__code_run__",
         "context": context,
-        "client": client,
+        # The client a routine would hold, except that candles and funding asked of
+        # a test venue (binance_perpetual_testnet) are read from its mainnet
+        # counterpart: the API refuses test networks for market data, and the
+        # snippet should not have to know which of its connectors are one.
+        "client": data_venue_client(client),
     }
 
     _install_stdout_proxy()

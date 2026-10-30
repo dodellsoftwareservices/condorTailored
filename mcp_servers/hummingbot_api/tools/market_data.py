@@ -21,6 +21,7 @@ from condor.fetchers.market_data import (
     fetch_candle_connectors,
     fetch_historical_candles,
 )
+from condor.venues import data_connector_for
 from mcp_servers.hummingbot_api.exceptions import ToolError
 from mcp_servers.hummingbot_api.formatters import format_prices_as_table
 
@@ -98,7 +99,10 @@ async def get_market_data(
         start_time / end_time: Unix epoch seconds, for "historical_candles"
 
     Returns:
-        A dict whose candle rows are floats, not a rendered table.
+        A dict whose candle rows are floats, not a rendered table. Reading a test
+        venue (``binance_perpetual_testnet``) answers from its mainnet counterpart,
+        since the API serves candles for mainnet venues only, and says so in
+        ``data_connector``; the key is absent for every other connector.
     """
     if action == "connectors":
         return {
@@ -118,6 +122,9 @@ async def get_market_data(
         raise ToolError(f"trading_pair is required for the {action} action")
 
     limit = max(1, min(int(max_records), MAX_CANDLE_RECORDS))
+    # The API serves candles for mainnet venues only (it refuses test networks on
+    # purpose), so a test venue is read from its mainnet counterpart.
+    data_connector = data_connector_for(connector_name)
 
     if action == "historical_candles":
         if start_time is None:
@@ -127,7 +134,7 @@ async def get_market_data(
             )
         rows = await fetch_historical_candles(
             client,
-            connector_name,
+            data_connector,
             trading_pair,
             interval,
             start_time=start_time,
@@ -140,14 +147,14 @@ async def get_market_data(
         # answers, which is exactly "the most recent `limit` candles".
         rows = await fetch_historical_candles(
             client,
-            connector_name,
+            data_connector,
             trading_pair,
             interval,
             start_time=None,
             limit=limit,
         )
 
-    return {
+    result = {
         "action": action,
         "connector_name": connector_name,
         "trading_pair": trading_pair,
@@ -155,3 +162,8 @@ async def get_market_data(
         "count": len(rows),
         "candles": rows,
     }
+    if data_connector != connector_name:
+        # Said in the result, not left to be inferred: candles that look like the
+        # venue being traded and are not would be read as its prices.
+        result["data_connector"] = data_connector
+    return result

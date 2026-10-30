@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
 
 from condor.reports.footprint import build_estimated_footprint_figure, candle_timestamps
+from condor.venues import data_connector_for
 from config_manager import get_client
 
 logger = logging.getLogger(__name__)
@@ -358,6 +359,27 @@ def _analyze_returns(closes: list, periods_per_day: int = 24) -> dict:
     }
 
 
+def _data_venue_note(
+    connector: str, data_connector: str, short: dict, ob_data: dict
+) -> str:
+    """Where the candles and funding came from, when that is not the venue traded.
+
+    The API serves candles for mainnet venues only, so a testnet is analysed off its
+    mainnet counterpart. The basis puts the traded venue's own book against that
+    counterpart's last close: a testnet that has drifted from the market it imitates
+    shows up here, where the regime table alone would read as if it had not.
+    """
+    note = (
+        f"data_venue: candles, funding from {data_connector} "
+        f"(stand-in for {connector}) | order book from {connector}"
+    )
+    price, mid = short.get("price"), ob_data.get("mid")
+    if price and mid:
+        basis_bps = (mid - price) / price * 10000
+        note += f" | basis: {basis_bps:+.1f} bps (book mid vs last close)"
+    return note
+
+
 async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
     client = await get_client(context._chat_id, context=context)
     if not client:
@@ -365,25 +387,36 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
 
     pair = config.trading_pair
     connector = config.connector_name
+    # Candles and funding are market data, which the API serves for mainnet venues
+    # only, so a test venue reads them from its mainnet counterpart. The order book
+    # is the venue's own state and stays on the connector being traded.
+    data_connector = data_connector_for(connector)
 
     try:
         import asyncio
 
         minute_candles, candles_15m, short_candles, long_candles = await asyncio.gather(
             client.market_data.get_candles(
-                connector, pair, interval="1m", max_records=1440
+                data_connector, pair, interval="1m", max_records=1440
             ),
             client.market_data.get_candles(
-                connector, pair, interval="15m", max_records=100
+                data_connector, pair, interval="15m", max_records=100
             ),
             client.market_data.get_candles(
-                connector, pair, interval="5m", max_records=100
+                data_connector, pair, interval="5m", max_records=100
             ),
             client.market_data.get_candles(
-                connector, pair, interval="4h", max_records=100
+                data_connector, pair, interval="4h", max_records=100
             ),
         )
     except Exception as e:
+        if data_connector != connector:
+            # The API's refusal names the stand-in, not the connector that was
+            # asked about, which would read as a different problem.
+            return (
+                f"Error fetching candles from {data_connector} "
+                f"(stand-in for {connector}): {e}"
+            )
         return f"Error fetching candles: {e}"
 
     def _norm(c):
@@ -408,7 +441,7 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
     funding_info = ""
     if "perpetual" in connector:
         try:
-            funding = await client.market_data.get_funding_info(connector, pair)
+            funding = await client.market_data.get_funding_info(data_connector, pair)
             if funding:
                 rate = funding.get("rate", funding.get("funding_rate", "N/A"))
                 funding_info = f"funding_rate: {rate}"
@@ -462,6 +495,10 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
         f"Overall Regime: **{overall_regime}**",
         f"Spread Recommendation: {_spread_recommendation(overall_regime)}",
     ]
+    if data_connector != connector:
+        summary_parts.append(
+            _data_venue_note(connector, data_connector, short, ob_data)
+        )
     if funding_info:
         summary_parts.append(funding_info)
     if ob_data and "error" not in ob_data:
