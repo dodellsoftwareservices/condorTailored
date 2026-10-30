@@ -1,0 +1,190 @@
+{
+  "$defs": {
+    "Budget": {
+      "additionalProperties": true,
+      "description": "The request ledger and pacer (:mod:`condor.llm.budget`).\n\nOff unless a file turns it on: with no file there is no ledger, no pacing\nand no rate limit, exactly as before.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "appliesTo": {
+          "default": "free-models",
+          "enum": [
+            "free-models",
+            "all"
+          ],
+          "title": "Appliesto",
+          "type": "string"
+        },
+        "dailyRequestCap": {
+          "default": 1000,
+          "minimum": 1,
+          "title": "Dailyrequestcap",
+          "type": "integer"
+        },
+        "reserveRequests": {
+          "default": 50,
+          "minimum": 0,
+          "title": "Reserverequests",
+          "type": "integer"
+        },
+        "requestsPerMinute": {
+          "default": 18,
+          "minimum": 1,
+          "title": "Requestsperminute",
+          "type": "integer"
+        },
+        "perRunRequestCap": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 100,
+          "title": "Perrunrequestcap"
+        },
+        "pacing": {
+          "default": true,
+          "title": "Pacing",
+          "type": "boolean"
+        },
+        "assumedRequestsPerTick": {
+          "default": 8,
+          "minimum": 1,
+          "title": "Assumedrequestspertick",
+          "type": "integer"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "Thinking": {
+      "additionalProperties": true,
+      "description": "How hard the model is asked to think (OpenRouter ``reasoning``).",
+      "properties": {
+        "effort": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effort"
+        },
+        "maxTokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxtokens"
+        },
+        "exclude": {
+          "default": false,
+          "title": "Exclude",
+          "type": "boolean"
+        }
+      },
+      "title": "Thinking",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "The resolved ``agent-config.json``.",
+  "properties": {
+    "model": {
+      "default": "",
+      "title": "Model",
+      "type": "string"
+    },
+    "maxSteps": {
+      "anyOf": [
+        {
+          "maximum": 100000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Maxsteps"
+    },
+    "approvalPolicy": {
+      "default": "always",
+      "enum": [
+        "always",
+        "dangerous-only",
+        "never"
+      ],
+      "title": "Approvalpolicy",
+      "type": "string"
+    },
+    "alwaysAllow": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Alwaysallow",
+      "type": "array"
+    },
+    "thinking": {
+      "$ref": "#/$defs/Thinking"
+    },
+    "maxOutputTokens": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Maxoutputtokens"
+    },
+    "tickTimeoutSec": {
+      "anyOf": [
+        {
+          "minimum": 30,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ticktimeoutsec"
+    },
+    "budget": {
+      "$ref": "#/$defs/Budget"
+    }
+  },
+  "title": "Condor agent-config.json",
+  "type": "object",
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -11,4 +11,6 @@ Modules:
 - :mod:`condor.llm.readiness` — "can this machine actually run that model?".
 - :mod:`condor.llm.openrouter_models` — the OpenRouter catalog fetch.
 - :mod:`condor.llm.custom_models` — OpenAI-compatible custom endpoints.
+- :mod:`condor.llm.budget` — the request ledger, limiter and pacer that keep an
+  unattended agent inside a provider's daily and per-minute request caps.
 """

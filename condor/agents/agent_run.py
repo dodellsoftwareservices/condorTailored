@@ -312,6 +312,8 @@ async def run_agent_to_completion(
         permission_callback=permission_cb,
         allowed_tools=agent.tools or None,
         user_id=user_id,
+        # Booked to the delegate in the request ledger, not to "interactive".
+        budget_caller=f"delegate:{agent.slug}",
     )
 
     prompt = runtime_context.build_agent_context(agent, user_id, task, context)

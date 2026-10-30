@@ -441,6 +441,8 @@ def test_every_pin_is_diffable_because_the_engine_reports_all_three():
         # The throttle accounting the status also carries ([[FEAT-138]]); this
         # stub answers for every read ``get_info`` makes, by design.
         _throttled_venues=lambda: [],
+        # And the request budget / shift clock, empty when neither is in play.
+        _request_budget_info=lambda: {},
         session_dir=None,
         is_experiment=False,
     )

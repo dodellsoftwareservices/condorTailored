@@ -429,6 +429,41 @@ def _detail(tool_call: dict[str, Any], session_key: str) -> str:
         return DETAIL_UNAVAILABLE
 
 
+#: The tools that sign with a wallet. ``approvalPolicy: never`` is about paper
+#: money and the owner's own exchange accounts; a swap or a liquidity move is an
+#: on-chain transaction nobody can take back, so these stay in front of a human
+#: unless ``alwaysAllow`` names them one by one.
+_SIGNING_TOOLS = frozenset({"execute_swap", "manage_clmm", "manage_amm"})
+
+
+def _config_preapproves(tool_call: dict[str, Any]) -> str:
+    """Why ``agent-config.json`` pre-approves this dangerous call, or ``""``.
+
+    ``approvalPolicy: never`` pre-approves every dangerous call except the
+    wallet-signing ones; ``alwaysAllow`` names single tools (``stop_executor``)
+    or ``tool:action`` pairs (``manage_bots:deploy``). Fails closed like every
+    gate predicate (SEC-093): a call whose arguments cannot be read might be
+    anything, so it goes to a human. A config that cannot be read at all is the
+    defaults, which ask.
+    """
+    try:
+        from condor.agent_config import get_agent_config
+
+        cfg = get_agent_config()
+        args = danger.tool_call_input(tool_call)
+        if args is None:
+            return ""
+        name = danger.tool_call_name(tool_call)
+        if cfg.never_ask and name not in _SIGNING_TOOLS:
+            return "approvalPolicy never"
+        action = args.get("action")
+        if cfg.tool_always_allowed(name, action if isinstance(action, str) else None):
+            return "alwaysAllow"
+    except Exception:  # noqa: BLE001 - a failing config read must never approve
+        log.exception("Could not read agent-config.json; asking a human")
+    return ""
+
+
 def build_permission_callback(
     session_key: str,
     user_id: int,
@@ -467,6 +502,19 @@ def build_permission_callback(
             return {**CANCELLED, "reason": refusal}
 
         if not danger.is_dangerous_tool_call(tool_call):
+            return _select_allow(options)
+
+        # agent-config.json: the owner has said no human needs to answer this
+        # one. Only ever the human wait is skipped; the two refusals above are
+        # unconditional and stay so.
+        preapproved = _config_preapproves(tool_call)
+        if preapproved:
+            log.info(
+                "Pre-approved %s for session %s (%s)",
+                tool_name,
+                session_key,
+                preapproved,
+            )
             return _select_allow(options)
 
         pending = _registry.register(

@@ -98,6 +98,23 @@ def _isolated_runtime_root(tmp_path, monkeypatch):
     monkeypatch.setenv(paths.STOCK_AGENTS_ROOT_ENV, str(tmp_path / "stock-agents"))
     monkeypatch.setenv(paths.REPORTS_DIR_ENV, str(tmp_path / "reports"))
 
+    # ``agent-config.json`` at the repo root is the owner's own: its alwaysAllow
+    # list would pre-approve calls these tests assert a human is asked about,
+    # and its budget would put a rate limiter in front of every model request.
+    # Point the loader at a file that does not exist, so every test starts on
+    # the built-in defaults; a test that wants a config writes one and repoints.
+    from condor import agent_config
+    from condor.llm import budget
+
+    monkeypatch.setenv(agent_config.CONFIG_ENV, str(tmp_path / "no-agent-config.json"))
+    for name in agent_config.ENV_OVERRIDES:
+        monkeypatch.delenv(name, raising=False)
+    agent_config.reset_cache()
+    budget.reset_governor()
+    yield
+    agent_config.reset_cache()
+    budget.reset_governor()
+
 
 @pytest.fixture
 def ws_access_granted(monkeypatch):

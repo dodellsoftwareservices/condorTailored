@@ -42,6 +42,8 @@ def build_llm_client(
     base_url_override: str | None = None,
     default_base_url: str | None = None,
     strict_custom_endpoint: bool = False,
+    budget_caller: str | None = None,
+    unattended: bool = False,
 ) -> acp_client.ACPClient | pydantic_ai.PydanticAIClient:
     """Build (but do not start) the right client for ``agent_key``.
 
@@ -65,6 +67,12 @@ def build_llm_client(
     client filter; ACP filters nothing, so for both the allowlist is enforced
     where the MCP servers are built — :func:`condor.runtime.toolsets.seat_mutes`
     keeps what it leaves out from ever being mounted.
+
+    ``budget_caller`` names who the request ledger books a pydantic-ai client's
+    requests to (a loop passes its agent_id), and ``unattended`` marks a run no
+    human is watching — the loop engine — which is held to the per-run request
+    cap and the day's remaining budget (``agent-config.json``, ``budget``).
+    Both are ignored by ACP clients, whose models bill elsewhere.
     """
     if pydantic_ai.is_pydantic_ai_model(agent_key):
         # The key's provenance is only known here: with an explicit URL in play
@@ -78,6 +86,11 @@ def build_llm_client(
             strict=strict_custom_endpoint,
             env_fallback=env_keys_allowed,
         )
+        extra: dict[str, Any] = {}
+        if budget_caller:
+            extra["budget_caller"] = budget_caller
+        if unattended:
+            extra["unattended"] = True
         return pydantic_ai.PydanticAIClient(
             model=agent_key,
             mcp_servers=mcp_servers,
@@ -88,6 +101,7 @@ def build_llm_client(
             allowed_tools=allowed_tools,
             system_prompt=system_prompt,
             env_keys_allowed=env_keys_allowed,
+            **extra,
         )
 
     # ACP subprocess models: claude-code, gemini, codex. A Claude model can be
