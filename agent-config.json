@@ -7,20 +7,7 @@
   "maxSteps": 1000,
 
   "approvalPolicy": "always",
-  "alwaysAllow": [
-    "manage_bots:deploy",
-    "manage_bots:update_config",
-    "manage_bots:start_controllers",
-    "manage_bots:stop_controllers",
-    "manage_bots:stop_bot",
-    "create_position_executor",
-    "create_grid_executor",
-    "create_dca_executor",
-    "create_order_executor",
-    "stop_executor",
-    "set_account_position_mode_and_leverage",
-    "control_agent:start"
-  ],
+  "alwaysAllow": [],
 
   "thinking": {
     "effort": "high",
@@ -31,7 +18,7 @@
 
   "budget": {
     "enabled": true,
-    "appliesTo": "free-models",
+    "appliesTo": "all",
     "dailyRequestCap": 1000,
     "reserveRequests": 50,
     "requestsPerMinute": 18,

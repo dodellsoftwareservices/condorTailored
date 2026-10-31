@@ -82,6 +82,24 @@ def test_the_shipped_file_is_valid_and_says_what_the_owner_asked_for(monkeypatch
     assert cfg.model.startswith("openrouter:")
 
 
+def test_the_shipped_file_pre_approves_nothing_and_meters_every_model(monkeypatch):
+    """The baseline a fresh checkout runs on: a human sees every dangerous call.
+
+    ``alwaysAllow`` is not venue-scoped, so a pre-approved ``manage_bots:deploy``
+    covers a mainnet connector the day live keys are registered. An owner who
+    wants unattended testnet runs adds entries to a local copy, on purpose.
+    ``appliesTo: all`` keeps a paid model from running outside the request cap
+    that the free tier needs.
+    """
+    monkeypatch.setenv(agent_config.CONFIG_ENV, str(SHIPPED))
+    reset_cache()
+    cfg = get_loaded(strict=True).config
+
+    assert cfg.approval_policy == "always"
+    assert cfg.always_allow == ()
+    assert cfg.budget.applies_to == "all"
+
+
 def test_the_shipped_schema_is_the_models_schema():
     on_disk = json.loads((REPO / "agent-config.schema.json").read_text())
 
