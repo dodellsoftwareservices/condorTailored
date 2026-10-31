@@ -344,6 +344,16 @@ provider resets on). `alwaysAllow` and `approvalPolicy` only skip the wait for a
 human on chat and delegation seats; a loop's risk gate and the refusal of raw
 controller-code pushes are not configurable from here.
 
+The checked-in file pre-approves nothing (`"alwaysAllow": []`) and meters every
+OpenRouter model (`"appliesTo": "all"`). `alwaysAllow` is not scoped to a venue,
+so an entry such as `manage_bots:deploy` also covers a mainnet connector once
+live keys are registered; add entries to a local copy, knowingly. The file's
+`model` reaches only the shift runner. For the model each seat really runs with,
+which agents can mutate, and the fallback a delegated run takes when its backend
+is down, run `uv run python -m condor.agents.seats` (also logged at startup).
+Set `AGENT_FALLBACK_MODEL=` (empty) in `.env` to have such a run fail instead of
+answering on another provider.
+
 ### `config.yml` (auto-created on first run)
 ```yaml
 servers:

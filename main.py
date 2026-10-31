@@ -709,6 +709,13 @@ async def startup(application: Application) -> None:
 
     ensure_migrated()
 
+    # Which model, fallback and tool access each seat resolves to, in the log
+    # every run starts from. A model is set in five places and agent-config.json
+    # reaches only one of them, so this is where a mismatch becomes visible.
+    from condor.agents.seats import log_seats
+
+    log_seats()
+
     # Sync server permissions (ensures all servers have ownership entries)
     await sync_server_permissions()
 
