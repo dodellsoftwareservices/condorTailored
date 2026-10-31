@@ -33,6 +33,11 @@ describe("the nav", () => {
     expect(paths).toContain("/bots");
   });
 
+  it("has no Get Started entry: the guide is a side panel, not a page", () => {
+    const paths: string[] = NAV_ITEMS.map((item) => item.to);
+    expect(paths).not.toContain("/get-started");
+  });
+
   it("gives every nav entry a distinct address and label", () => {
     expect(new Set(NAV_ITEMS.map((i) => i.to)).size).toBe(NAV_ITEMS.length);
     expect(new Set(NAV_ITEMS.map((i) => i.label)).size).toBe(NAV_ITEMS.length);

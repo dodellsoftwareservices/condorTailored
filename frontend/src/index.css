@@ -351,3 +351,169 @@ body {
   padding-left: 0.75em;
   color: var(--color-text-muted);
 }
+
+/* ── Docs page ── */
+/* A page somebody reads top to bottom, not an answer glanced at in a chat bubble,
+   so it is set the other way round: body text at 16px on a 1.75 line, a column
+   about 65 characters wide, real space between paragraphs and list items, and a
+   rule over each section so the steps read as steps. Standalone rather than a
+   layer over `.chat-markdown`, whose sizes are tuned for a small panel. */
+.docs-markdown {
+  font-size: 1rem;
+  line-height: 1.75;
+  color: var(--color-text);
+}
+
+.docs-markdown h1 {
+  font-size: 2rem;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin: 0 0 1rem;
+}
+
+/* The sentence under the title is the lead: a size up. Same colour as the body,
+   since the muted grey is below comfortable contrast for a whole paragraph. */
+.docs-markdown h1 + p {
+  font-size: 1.1875rem;
+  line-height: 1.65;
+}
+
+.docs-markdown h2 {
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 3rem 0 1rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--chat-rule);
+}
+
+.docs-markdown h3 {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  margin: 1.75rem 0 0.5rem;
+}
+
+/* The measure is the page's own width (see GetStarted), so paragraphs, boxes and
+   section rules all share one edge. */
+.docs-markdown p {
+  margin: 0 0 1rem;
+}
+
+/* Tailwind's reset removes list markers; a numbered step needs its number. */
+.docs-markdown ul,
+.docs-markdown ol {
+  margin: 0 0 1.25rem;
+  padding-left: 1.5rem;
+}
+
+.docs-markdown ul { list-style: disc; }
+.docs-markdown ol { list-style: decimal; }
+
+.docs-markdown li {
+  margin: 0 0 0.6rem;
+  padding-left: 0.35rem;
+}
+
+.docs-markdown li::marker {
+  color: var(--color-text-muted);
+}
+
+/* A list inside a list item: close to its parent, and no gap after the last. */
+.docs-markdown li > ul,
+.docs-markdown li > ol {
+  margin: 0.5rem 0 0.25rem;
+}
+
+.docs-markdown li li {
+  margin-bottom: 0.4rem;
+}
+
+.docs-markdown li > p {
+  margin: 0;
+}
+
+.docs-markdown strong {
+  font-weight: 600;
+}
+
+.docs-markdown a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.docs-markdown code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.875em;
+  background: var(--chat-inset);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+
+.docs-markdown pre {
+  margin: 1rem 0 1.5rem;
+  padding: 1rem 1.25rem;
+  background: var(--chat-inset);
+  border: 1px solid var(--chat-rule);
+  border-radius: 8px;
+  overflow-x: auto;
+  line-height: 1.6;
+}
+
+.docs-markdown pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875rem;
+}
+
+/* A note that should not be skimmed past: set in a box, not just indented. */
+.docs-markdown blockquote {
+  margin: 1.5rem 0;
+  padding: 1rem 1.25rem;
+  background: var(--chat-inset);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0 8px 8px 0;
+}
+
+/* The same document in the 24rem side panel: one size down all round, so it
+   keeps its proportions (and its ~45 characters a line) instead of crowding.
+   Declared after the base rules so it wins at equal specificity. */
+.docs-markdown--compact {
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+
+.docs-markdown--compact h1 {
+  font-size: 1.5rem;
+}
+
+.docs-markdown--compact h1 + p {
+  font-size: 1.0625rem;
+}
+
+.docs-markdown--compact h2 {
+  font-size: 1.1875rem;
+  margin-top: 2.25rem;
+  padding-top: 1.5rem;
+}
+
+.docs-markdown--compact h3 {
+  font-size: 1rem;
+}
+
+.docs-markdown--compact pre {
+  padding: 0.75rem 0.9rem;
+}
+
+.docs-markdown--compact pre code {
+  font-size: 0.8125rem;
+}
+
+.docs-markdown--compact blockquote {
+  padding: 0.85rem 1rem;
+}
+
+.docs-markdown blockquote > :last-child {
+  margin-bottom: 0;
+}

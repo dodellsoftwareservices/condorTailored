@@ -215,6 +215,13 @@ export const CHAT_RAIL_OPEN_KEY = "condor.chat.rail.open";
 export const BUBBLE_OPEN_KEY = "condor_bubble_open";
 
 /**
+ * Whether the Get Started guide's side panel is open (components/guide).
+ *
+ * KEPT: the guide is the same text for everyone; only "was it open" is stored.
+ */
+export const GUIDE_OPEN_KEY = "condor_guide_open";
+
+/**
  * Whether `/trade`'s bottom pane is expanded (components/trade/TradeBottomPane).
  *
  * KEPT: the pane's contents — orders, positions, executors — are re-fetched

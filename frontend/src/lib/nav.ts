@@ -34,6 +34,10 @@ import {
  * own root, split by the level below it — so the floor is the fleet scope of
  * that browser rather than a second door onto the same records. `/floor`
  * redirects to `/bots`.
+ *
+ * Get Started is not here: it is a side panel the header's book button opens
+ * (components/guide), because a walkthrough is read while doing the steps on
+ * the other pages, which a page of its own would hide.
  */
 export const NAV_ITEMS = [
   { to: "/", icon: Brain, label: "Agents" },

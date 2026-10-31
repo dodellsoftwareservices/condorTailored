@@ -1,11 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Bug, Eye, Moon, Sun } from "lucide-react";
+import { BookOpen, Bug, Eye, Moon, Sun } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { ChatBubble } from "@/components/chat/ChatBubble";
 import { ConnectKeysOverlay } from "@/components/ConnectKeysOverlay";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { GuidePanel } from "@/components/guide/GuidePanel";
 import { RelaunchBanner } from "@/components/RelaunchBanner";
 import { ReportIssueDialog } from "@/components/ReportIssueDialog";
 import { TelemetryConsentBanner } from "@/components/TelemetryConsentBanner";
@@ -16,6 +17,7 @@ import { useServer } from "@/hooks/useServer";
 import { useTheme } from "@/hooks/useTheme";
 import { NAV_ITEMS, FULL_BLEED_ROUTES } from "@/lib/nav";
 import { routeFacts } from "@/lib/pageFacts";
+import { GUIDE_OPEN_KEY } from "@/lib/sessionState";
 import { useViewFacts } from "@/lib/viewFacts";
 import { CurrencySelector } from "./CurrencySelector";
 import { NotificationBell } from "./NotificationBell";
@@ -57,6 +59,25 @@ function AppShellBody() {
   const navigate = useNavigate();
   const { hasKeys, isLoading: keysLoading } = useCredentials();
   const [reportOpen, setReportOpen] = useState(false);
+
+  // The Get Started guide, docked on the right. Remembered across reloads, but
+  // never required to be: a private window just opens it shut.
+  const [guideOpen, setGuideOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(GUIDE_OPEN_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleGuide = () => {
+    const next = !guideOpen;
+    setGuideOpen(next);
+    try {
+      localStorage.setItem(GUIDE_OPEN_KEY, next ? "1" : "0");
+    } catch {
+      // Not remembered; the panel still opens.
+    }
+  };
 
   // A pathname is enough: every full-bleed screen is its own route.
   // `/agents/:slug` is an ordinary padded page, deliberately not matched here.
@@ -103,7 +124,12 @@ function AppShellBody() {
   useViewFacts(() => routeFacts(pathname, search, queryClient));
 
   return (
-    <div className="flex h-screen flex-col">
+    // `--guide-w` is the width the docked guide takes from the page, which the
+    // quick-chat bubble reads to stay clear of it. Only set from `lg`, where the
+    // panel is docked; below that it floats over the page and nothing moves.
+    <div
+      className={`flex h-screen flex-col ${guideOpen ? "lg:[--guide-w:24rem]" : ""}`}
+    >
       {/* Top bar */}
       <header className="flex h-12 shrink-0 items-center border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4">
         {/* Left: logo + nav */}
@@ -148,6 +174,21 @@ function AppShellBody() {
             <NotificationBell />
 
             <button
+              onClick={toggleGuide}
+              className={`rounded p-1.5 ${
+                guideOpen
+                  ? "bg-[var(--color-primary)]/15 text-[var(--color-primary)]"
+                  : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-accent)]"
+              }`}
+              title={guideOpen ? "Close the Get Started guide" : "Open the Get Started guide"}
+              aria-label="Get started guide"
+              aria-expanded={guideOpen}
+              aria-controls="guide-panel"
+            >
+              <BookOpen className="h-4 w-4" />
+            </button>
+
+            <button
               onClick={() => setReportOpen(true)}
               className="rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-accent)]"
               title="Report an issue"
@@ -173,29 +214,40 @@ function AppShellBody() {
         </div>
       </header>
 
-      {/* An update landed but this process is still the old one, so the bundle
-          in the browser is ahead of the API answering it. Above `main` for the
-          same reason the consent strip is: every page needs it, and the chat
-          workspace owns its own scrolling. Renders nothing the rest of the
-          time, which is nearly always. */}
-      <RelaunchBanner />
+      {/* The page and, when it is open, the guide beside it. The guide is a
+          sibling of the page column, not a child of `main`, so the keys overlay
+          (which covers `main`) never hides the instructions for connecting
+          them. */}
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* An update landed but this process is still the old one, so the
+              bundle in the browser is ahead of the API answering it. Above
+              `main` for the same reason the consent strip is: every page needs
+              it, and the chat workspace owns its own scrolling. Renders nothing
+              the rest of the time, which is nearly always. */}
+          <RelaunchBanner />
 
-      {/* Asks once, for an install that has never answered (FEAT-023). Renders
-          nothing for everyone else, including on the chat workspace, which owns
-          its own scrolling — hence outside `main` rather than inside it. */}
-      <TelemetryConsentBanner />
+          {/* Asks once, for an install that has never answered (FEAT-023).
+              Renders nothing for everyone else, including on the chat
+              workspace, which owns its own scrolling — hence outside `main`
+              rather than inside it. */}
+          <TelemetryConsentBanner />
 
-      {/* Main content */}
-      <main
-        className={`relative flex-1 ${
-          isFullBleed ? "overflow-hidden" : "overflow-auto p-6"
-        }`}
-      >
-        <ErrorBoundary resetKey={pathname + server}>
-          <Outlet key={server} />
-        </ErrorBoundary>
-        {showKeysOverlay && <ConnectKeysOverlay />}
-      </main>
+          {/* Main content */}
+          <main
+            className={`relative flex-1 ${
+              isFullBleed ? "overflow-hidden" : "overflow-auto p-6"
+            }`}
+          >
+            <ErrorBoundary resetKey={pathname + server}>
+              <Outlet key={server} />
+            </ErrorBoundary>
+            {showKeysOverlay && <ConnectKeysOverlay />}
+          </main>
+        </div>
+
+        {guideOpen && <GuidePanel onClose={toggleGuide} />}
+      </div>
 
       <ReportIssueDialog open={reportOpen} onClose={() => setReportOpen(false)} />
 

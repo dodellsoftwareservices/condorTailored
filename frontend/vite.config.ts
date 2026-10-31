@@ -34,6 +34,9 @@ export default defineConfig({
     },
   },
   server: {
+    // `pages/GetStarted.tsx` imports `../docs/get-started.md`, which sits next to
+    // this folder rather than inside it; the dev server refuses that by default.
+    fs: { allow: [".."] },
     proxy: {
       "/api": "http://localhost:8088",
       "/ws": {
