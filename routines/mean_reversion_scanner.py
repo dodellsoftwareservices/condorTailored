@@ -1,4 +1,14 @@
-"""Scan top Binance perp markets for mean reversion upside — ATH, VWAP vs current price."""
+"""Scan top Binance perp markets for mean reversion upside — ATH, VWAP vs current price.
+
+Binance-only, hardcoded (`BINANCE_SPOT_TICKER`/`_KLINES`/`BINANCE_FUTURES_INFO`
+below): ATH needs years of daily history that a newer perp DEX (e.g. Lighter)
+doesn't have yet, so `Config.connector` below is accepted but not actually
+read by `fetch_top_pairs`/`fetch_daily_candles` — those always hit Binance.
+On an IP Binance blocks (451, e.g. most US addresses) this routine always
+fails; that now surfaces as a real ❌ instead of a false ✅ (system review
+2026-10-31, finding #10), but the Binance dependency itself is
+unresolved — there's no equivalent long-history venue wired in yet.
+"""
 
 CATEGORY = "Market Data"
 
@@ -9,6 +19,8 @@ import aiohttp
 import numpy as np
 from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
+
+from routines.base import RoutineResult
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +49,8 @@ class Config(BaseModel):
     """Scan top perp markets for mean reversion upside — ATH, VWAP vs current price."""
 
     connector: str = Field(
-        default="binance_perpetual", description="Exchange connector"
+        default="binance_perpetual",
+        description="Exchange connector (not yet wired in — this scan always reads Binance directly, see module docstring)",
     )
     top_n: int = Field(default=80, description="Top N pairs by 24h volume to scan")
     show_n: int = Field(default=25, description="Show top N results")
@@ -282,7 +295,9 @@ def format_results(results: list[dict], sort_by: str, show_n: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     chat_id = context._chat_id
     headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 
@@ -291,7 +306,7 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
         try:
             pairs = await fetch_top_pairs(session, config.min_volume_usd, config.top_n)
         except Exception as e:
-            return f"Failed to fetch tickers: {e}"
+            return RoutineResult(text=f"Failed to fetch tickers: {e}", failed=True)
 
         if not pairs:
             return "No pairs found matching criteria."
@@ -315,7 +330,9 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
                 results.append(analysis)
 
     if not results:
-        return "Analysis failed — no valid candle data."
+        return RoutineResult(
+            text="Analysis failed — no valid candle data.", failed=True
+        )
 
     # 4. Sort
     sort_key = (

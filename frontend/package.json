@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/check-no-yellow.mjs && tsc -b && vite build",
     "lint": "eslint .",
-    "lint:ci": "node scripts/lint-baseline.mjs",
-    "lint:baseline": "node scripts/lint-baseline.mjs",
+    "lint:ci": "node scripts/check-no-yellow.mjs && node scripts/lint-baseline.mjs",
+    "lint:baseline": "node scripts/check-no-yellow.mjs && node scripts/lint-baseline.mjs",
+    "check:colors": "node scripts/check-no-yellow.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"

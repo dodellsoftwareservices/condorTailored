@@ -18,6 +18,8 @@ import socket
 from urllib.parse import urlparse
 
 import aiohttp
+from aiohttp.abc import AbstractResolver
+from aiohttp.resolver import DefaultResolver
 
 log = logging.getLogger(__name__)
 
@@ -104,10 +106,8 @@ def _reject_if_blocked(host: str) -> None:
     servers work, and can be refused too by setting
     CUSTOM_LLM_BLOCK_PRIVATE_URLS=true on shared/multi-tenant deployments.
 
-    Only IP literals are checked unless the strict flag is set — resolving
-    every hostname would add latency and would still be defeatable by DNS
-    rebinding, so this is a guard against casual probing, not a security
-    boundary.
+    This catches obvious bad input before making a request. The probe's
+    resolver checks the actual DNS answers again at connection time.
     """
     lowered = host.lower().rstrip(".")
     if lowered in BLOCKED_HOSTNAMES:
@@ -119,12 +119,10 @@ def _reject_if_blocked(host: str) -> None:
         ipaddress.ip_address(lowered.strip("[]"))
         addresses = [lowered.strip("[]")]
     except ValueError:
-        if strict:
-            try:
-                addresses = [info[4][0] for info in socket.getaddrinfo(lowered, None)]
-            except OSError:
-                # Unresolvable — let the actual request produce the error
-                return
+        # DNS is resolved by the connector, where its actual socket addresses
+        # can be checked without blocking the event loop or racing another
+        # resolution.
+        pass
 
     for raw in addresses:
         try:
@@ -141,6 +139,34 @@ def _reject_if_blocked(host: str) -> None:
                 f"'{host}' resolves to a private address and "
                 f"{_BLOCK_PRIVATE_ENV} is enabled."
             )
+
+
+class _ProbeResolver(AbstractResolver):
+    """Reject forbidden DNS answers where the socket address is selected.
+
+    Validating a hostname before aiohttp resolves it leaves a DNS rebinding
+    gap. The connector uses these checked answers directly for its sockets.
+    """
+
+    def __init__(self) -> None:
+        self._resolver = DefaultResolver()
+
+    async def resolve(self, host, port=0, family=socket.AF_INET):
+        _reject_if_blocked(host)
+        answers = await self._resolver.resolve(host, port, family)
+        strict = _block_private()
+        for answer in answers:
+            raw = answer["host"]
+            try:
+                ip = ipaddress.ip_address(raw)
+            except ValueError as exc:
+                raise OSError("Provider DNS returned an invalid address") from exc
+            if ip.is_link_local or (strict and not ip.is_global):
+                raise OSError("Provider DNS returned a blocked address")
+        return answers
+
+    async def close(self):
+        await self._resolver.close()
 
 
 def normalize_base_url(raw: str) -> str:
@@ -168,6 +194,10 @@ def normalize_base_url(raw: str) -> str:
         or not parsed.netloc
         or not hostname
         or not _HOSTNAME_RE.match(hostname)
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
     ):
         raise ValueError(f"'{raw.strip()}' is not a valid http(s) URL.")
     _reject_if_blocked(hostname)
@@ -232,7 +262,14 @@ async def _probe(
     """Fetch one candidate's model list. Returns (models, error)."""
     models_url = f"{candidate}/models"
     try:
-        async with session.get(models_url, headers=headers) as resp:
+        async with session.get(
+            models_url, headers=headers, allow_redirects=False
+        ) as resp:
+            if 300 <= resp.status < 400:
+                return [], CustomProviderError(
+                    f"{models_url} redirected (HTTP {resp.status}). "
+                    "Enter the provider's final /v1 URL directly."
+                )
             if resp.status in (401, 403):
                 return [], CustomProviderError(
                     f"the provider at {candidate} rejected the API key "
@@ -283,13 +320,19 @@ async def fetch_models(base_url: str, api_key: str = "") -> tuple[str, list[str]
     Raises CustomProviderError with a user-facing message on any failure —
     unreachable host, rejected key, or a non-OpenAI-shaped response.
     """
+    try:
+        base_url = normalize_base_url(base_url)
+    except ValueError as exc:
+        raise CustomProviderError(str(exc)) from None
+
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     candidates = [base_url]
     if not base_url.endswith("/v1"):
         candidates.append(f"{base_url}/v1")
 
     timeout = aiohttp.ClientTimeout(total=FETCH_TIMEOUT_SECONDS)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    connector = aiohttp.TCPConnector(resolver=_ProbeResolver())
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         results = await asyncio.gather(
             *(_probe(session, candidate, headers) for candidate in candidates)
         )

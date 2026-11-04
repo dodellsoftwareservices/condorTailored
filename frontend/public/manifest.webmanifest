@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Condor",
-  "short_name": "Condor",
+  "name": "Griffin",
+  "short_name": "Griffin",
   "description": "Portfolio, bots, agents and trading for Hummingbot.",
   "start_url": "/",
   "scope": "/",

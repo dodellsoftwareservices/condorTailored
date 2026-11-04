@@ -407,10 +407,17 @@ def client(monkeypatch):
         def get_user_role(self, user_id):
             return UserRole.ADMIN if user_id == LOCAL_ID else None
 
+        def has_2fa_enabled(self, user_id):
+            return False  # the test admin never enrolled a TOTP factor
+
     monkeypatch.setattr("condor.web.routes.auth.get_config_manager", lambda: _CM())
     monkeypatch.setattr("condor.web.auth.get_config_manager", lambda: _CM())
     monkeypatch.setattr(app_config, "LOCAL_USER_ID", LOCAL_ID)
-    with TestClient(create_app()) as test_client:
+    # Local mode's dashboard is reached at 127.0.0.1 in practice, and
+    # get_current_user's loopback-only bearer fallback (condor/web/auth.py)
+    # keys off request.client.host — TestClient defaults that to the literal
+    # string "testclient", which the fallback would otherwise reject.
+    with TestClient(create_app(), client=("127.0.0.1", 50000)) as test_client:
         yield test_client
 
 

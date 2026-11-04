@@ -177,7 +177,7 @@ export function RoutineLibrarySidebar({
               to, where there is no list to put them beside. */}
           <div className="flex flex-wrap gap-1 border-b border-[var(--color-border)] px-2 py-2">
             {bubble("all", "All", routines.length)}
-            {condorCount > 0 && bubble("condor", "Condor", condorCount, Zap)}
+            {condorCount > 0 && bubble("condor", "Griffin", condorCount, Zap)}
             {agentCount > 0 && bubble("agent", "Agents", agentCount, Brain)}
             {agents.map((slug) =>
               bubble(slug, formatSlug(slug), 0, Brain),

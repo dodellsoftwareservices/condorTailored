@@ -133,7 +133,7 @@ class AgentSession:
     server_pinned: bool = False
     user_id: int | None = None
     agent_slug: str = ""
-    label: str = "Condor"  # who is answering, for both UIs' headers
+    label: str = "Griffin"  # who is answering, for both UIs' headers
     # The durable conversation this session answers into. The subprocess dies
     # with the process; the transcript behind this id does not.
     conversation_id: str = ""

@@ -380,7 +380,7 @@ def _plan(component_keys: list[str], statuses: dict[str, components.ComponentSta
         else:
             # No restart step: the run stops with the new code on disk and asks
             # for the relaunch instead (see the module docstring).
-            steps.append(Step(f"{key}.fast-forward", "Fast-forwarding Condor"))
+            steps.append(Step(f"{key}.fast-forward", "Fast-forwarding Griffin"))
             steps.append(Step(f"{key}.unstash", "Restoring stashed work"))
             steps.append(Step(f"{key}.deps", "Syncing dependencies"))
             steps.append(Step(f"{key}.frontend", "Rebuilding the dashboard"))
@@ -477,7 +477,7 @@ async def start(
                 except OSError:
                     pass
                 raise RuntimeError(
-                    "Another Condor process on this checkout is already running "
+                    "Another Griffin process on this checkout is already running "
                     f"an update{f' (pid {holder})' if holder else ''}. Wait for "
                     "it to finish rather than running a second one over the "
                     "same repo."
@@ -661,7 +661,7 @@ async def _update_condor(run: Run) -> bool:
         ok, output = await updater.fast_forward(component.repo_dir)
         await _finish(run, step, OK if ok else FAILED, output)
         if not ok:
-            await _fail(run, "Condor could not be fast-forwarded.")
+            await _fail(run, "Griffin could not be fast-forwarded.")
             return False
 
     # Work parked by the `stash` resolution goes back now that the fast-forward
@@ -789,8 +789,8 @@ async def finalize_pending_run() -> Run | None:
         # and before the dashboard is rebuilt, so this Condor may be running new
         # code against a stale venv.
         run.error = (
-            f"This update was interrupted{where} — Condor stopped before the run "
-            f"finished.{completed} Nothing was rolled back, so Condor is now "
+            f"This update was interrupted{where} — Griffin stopped before the run "
+            f"finished.{completed} Nothing was rolled back, so Griffin is now "
             "*running* that partial result: new code, possibly with dependencies "
             "or a dashboard bundle that never caught up. Run the update again "
             "before anything else."

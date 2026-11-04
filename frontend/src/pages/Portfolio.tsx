@@ -10,12 +10,15 @@ import {
   KeyRound,
   ArrowUpRight,
   ArrowDownRight,
+  FlaskConical,
 } from "lucide-react";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { NoServerCard } from "@/components/NoServerCard";
 import { PositionsTab } from "@/components/portfolio/PositionsTab";
+import { SimAccountTab } from "@/components/portfolio/SimAccountTab";
+import { SIM_TAB_LABEL, useSimAccount } from "@/components/portfolio/simAccountData";
 import { useLpPositions } from "@/hooks/useLpPositions";
 import { useRates } from "@/hooks/useRates";
 import { useServer } from "@/hooks/useServer";
@@ -32,6 +35,8 @@ import {
 import { formatCurrency, formatCurrencyPnl, formatCurrencyVolume, isExecutorActive } from "@/lib/formatters";
 import { agentsQuery, EXECUTORS_REFETCH_MS, executorsQuery } from "@/lib/queryClient";
 import { getThemeColors } from "@/lib/theme-colors";
+
+import "@/components/ui/workspace-surfaces.css";
 
 // ── Formatters ──
 
@@ -56,7 +61,7 @@ function formatTokenPrice(val: number, symbol = "$") {
 function getChartColors() {
   const tc = getThemeColors();
   return [
-    "#d4a845", // gold
+    tc.primary,
     tc.green,   // green (theme-aware)
     "#6366f1", // indigo
     tc.red,     // red (theme-aware)
@@ -64,7 +69,7 @@ function getChartColors() {
     "#8b5cf6", // violet
     "#ec4899", // pink
     "#14b8a6", // teal
-    "#f97316", // orange
+    "#9bb4cf", // steel blue
     "#a78bfa", // light violet
   ];
 }
@@ -89,10 +94,10 @@ function KpiCell({
   currencySymbol?: string;
 }) {
   return (
-    <div className="flex-1 px-5 py-3 min-w-0">
+    <div className="portfolio-kpi">
       <span className="text-[11px] uppercase tracking-wider font-medium text-[var(--color-text-muted)]">{label}</span>
-      <div className="flex items-baseline gap-2.5 mt-1">
-        <span className="text-2xl font-bold tabular-nums tracking-tight leading-none">{mainValue}</span>
+      <div className="portfolio-kpi-value">
+        <span className="portfolio-kpi-number">{mainValue}</span>
         {pnl !== undefined && pnl !== null && (
           <span className="inline-flex items-center gap-0.5 text-sm tabular-nums font-semibold"
             style={{ color: pnl >= 0 ? "var(--color-green)" : "var(--color-red)" }}>
@@ -101,7 +106,7 @@ function KpiCell({
           </span>
         )}
       </div>
-      <div className="text-xs text-[var(--color-text-muted)] mt-1 truncate">{details}</div>
+      <div className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">{details}</div>
     </div>
   );
 }
@@ -145,11 +150,10 @@ function DashboardStrip({
   const agentPnl = agents.reduce((s, a) => s + (a.latest_session_pnl ?? 0), 0);
   const agentSessions = agents.reduce((s, a) => s + (a.session_count ?? 0), 0);
 
-  const btnClass = "flex items-center justify-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)] w-full";
+  const btnClass = "workspace-button";
 
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
-      <div className="flex items-stretch divide-x divide-[var(--color-border)]">
+    <div className="portfolio-summary" aria-label="Portfolio summary">
         <KpiCell
           label="Portfolio"
           mainValue={formatCurrency(convertFromUsd(totalUsd), currencySymbol)}
@@ -187,17 +191,13 @@ function DashboardStrip({
         />
 
         {/* ── Period + Quick Links ── */}
-        <div className="flex flex-col justify-center gap-1 px-2.5 py-2 shrink-0 w-[100px]">
-          <div className="flex gap-0.5 rounded-md border border-[var(--color-border)] p-0.5 bg-[var(--color-bg)] w-full justify-center">
+        <div className="portfolio-summary-tools">
+          <div className="portfolio-periods" role="group" aria-label="Portfolio period">
             {TIME_PERIODS.map((p) => (
               <button
                 key={p}
                 onClick={() => onPeriodChange(p)}
-                className={`px-1.5 py-1 text-[10px] rounded font-medium transition-colors flex-1 ${
-                  period === p
-                    ? "bg-[var(--color-accent)] text-white shadow-sm"
-                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                }`}
+                aria-pressed={period === p}
               >
                 {p}
               </button>
@@ -212,7 +212,6 @@ function DashboardStrip({
             Servers
           </button>
         </div>
-      </div>
     </div>
   );
 }
@@ -407,6 +406,19 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
   const [stacked, setStacked] = useState(false);
   const [hover, setHover] = useState<{ x: number; point: PortfolioHistoryPoint } | null>(null);
   const queryClient = useQueryClient();
+  const chartContainer = useRef<HTMLDivElement>(null);
+  const [chartWidth, setChartWidth] = useState(800);
+
+  useEffect(() => {
+    const container = chartContainer.current;
+    if (!container) return;
+    const observer = new ResizeObserver(([entry]) => {
+      // Draw in actual CSS pixels so axes remain readable in a narrow pane.
+      if (entry.contentRect.width > 0) setChartWidth(Math.round(entry.contentRect.width));
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!server) return;
@@ -449,7 +461,7 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
     [rawPoints, convertFromUsd]
   );
 
-  const W = 800;
+  const W = chartWidth;
   const H = 250;
   const PAD = { top: 20, right: 16, bottom: 30, left: 64 };
   const plotW = W - PAD.left - PAD.right;
@@ -525,13 +537,13 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
 
     return { minTs, tsRange, toX, toY, stackedAreaPaths, linePath, areaPath, yTicks, xTicks };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, stacked, topTokens]);
+  }, [points, stacked, topTokens, W]);
 
   const chartColors = getChartColors();
   const stackedAreas = stackedAreaPaths.map((area, ti) => ({ ...area, color: chartColors[ti % chartColors.length] }));
 
   // Handle mouse move
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (points.length === 0) return;
     const svg = e.currentTarget;
     const rect = svg.getBoundingClientRect();
@@ -580,6 +592,7 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
         </div>
       </div>
 
+      <div ref={chartContainer} className="min-w-0">
       {isLoading ? (
         <div className="flex items-center justify-center h-[250px] text-[var(--color-text-muted)] text-sm">
           Loading...
@@ -593,9 +606,27 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
           <svg
             viewBox={`0 0 ${W} ${H}`}
             width="100%"
+            height={H}
             className="overflow-visible"
-            onMouseMove={handleMouseMove}
-            onMouseLeave={() => setHover(null)}
+            role="img"
+            aria-label={`Portfolio value over ${range}. Use arrow keys to inspect values.`}
+            tabIndex={0}
+            onPointerMove={handlePointerMove}
+            onPointerDown={handlePointerMove}
+            onPointerLeave={(event) => { if (event.pointerType !== "touch") setHover(null); }}
+            onPointerCancel={() => setHover(null)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") { setHover(null); return; }
+              const index = hover ? points.findIndex((point) => point.timestamp === hover.point.timestamp) : -1;
+              let next: number;
+              if (event.key === "Home") next = 0;
+              else if (event.key === "End") next = points.length - 1;
+              else if (event.key === "ArrowRight") next = Math.min(points.length - 1, index + 1);
+              else if (event.key === "ArrowLeft") next = index < 0 ? points.length - 1 : Math.max(0, index - 1);
+              else return;
+              event.preventDefault();
+              setHover({ x: toX(points[next].timestamp), point: { ...points[next], tokens: points[next].tokens } });
+            }}
           >
             <defs>
               <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
@@ -724,6 +755,9 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
               fill="transparent"
             />
           </svg>
+          <span className="sr-only" aria-live="polite">
+            {hover ? `${formatTooltipDate(hover.point.timestamp, range)}: ${formatCurrency(hover.point.total_usd, currencySymbol)}` : ""}
+          </span>
 
           {/* Legend for stacked mode */}
           {stacked && topTokens.length > 0 && (
@@ -741,6 +775,7 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -748,7 +783,7 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
 // ── Main Portfolio Page ──
 
 /** Assets is what you hold; Positions is what you are in. */
-type PortfolioTab = "assets" | "positions";
+type PortfolioTab = "assets" | "positions" | "krakenSimHodl" | "krakenSimMM" | "krakenSimFutures";
 
 export function Portfolio() {
   const { server } = useServer();
@@ -759,7 +794,14 @@ export function Portfolio() {
   // A tab is a real address here (Bots.tsx idiom): the default clears the param
   // rather than writing it, so `/portfolio` stays the canonical URL for Assets.
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab: PortfolioTab = searchParams.get("tab") === "positions" ? "positions" : "assets";
+  const rawTab = searchParams.get("tab");
+  const tab: PortfolioTab =
+    rawTab === "positions" || rawTab === "krakenSimHodl" || rawTab === "krakenSimMM" || rawTab === "krakenSimFutures" ? rawTab : "assets";
+  // The simulated Kraken accounts get their own tabs, so their holdings sit beside the
+  // server's but are never added into its totals. Admin-only routes: no data, no tab.
+  const simHodl = useSimAccount("hodl");
+  const simMm = useSimAccount("mm");
+  const simFut = useSimAccount("fut");
   const setTab = (next: PortfolioTab) => {
     if (next === "assets") setSearchParams({}, { replace: true });
     else setSearchParams({ tab: next }, { replace: true });
@@ -923,7 +965,7 @@ export function Portfolio() {
 
   if (error && !data) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="flex items-center justify-center min-h-[calc(var(--app-viewport-height)*0.6)]">
         <div className="rounded-lg border border-red-500/30 bg-[var(--color-surface)] p-8 text-center max-w-sm">
           <AlertCircle className="h-10 w-10 mx-auto mb-3 text-[var(--color-red)]" />
           <h2 className="text-lg font-semibold mb-1">Failed to Load Portfolio</h2>
@@ -968,7 +1010,7 @@ export function Portfolio() {
   const topTokens = allTokens.slice(0, 8);
 
   return (
-    <div className={`space-y-6 transition-opacity duration-300 ${isPlaceholderData ? "opacity-60" : "opacity-100"}`}>
+    <div className={`portfolio-page space-y-6 transition-opacity duration-300 ${isPlaceholderData ? "opacity-60" : "opacity-100"}`}>
       {/* Dashboard Strip */}
       <DashboardStrip
         totalUsd={totalUsd}
@@ -1014,6 +1056,15 @@ export function Portfolio() {
             // than a beat of no badge, so it waits for both queries.
             count: isLoadingHolds || isLoadingLp ? null : holds.length + lpPositions.length,
           },
+          ...(simHodl.pf
+            ? [{ key: "krakenSimHodl" as const, label: SIM_TAB_LABEL.hodl, icon: FlaskConical, count: simHodl.pf.positions.length }]
+            : []),
+          ...(simMm.pf
+            ? [{ key: "krakenSimMM" as const, label: SIM_TAB_LABEL.mm, icon: FlaskConical, count: simMm.pf.positions.length }]
+            : []),
+          ...(simFut.pf
+            ? [{ key: "krakenSimFutures" as const, label: SIM_TAB_LABEL.fut, icon: FlaskConical, count: simFut.pf.positions.length }]
+            : []),
         ]).map(({ key, label, icon: Icon, count }) => (
           <button
             key={key}
@@ -1044,7 +1095,7 @@ export function Portfolio() {
             <p>No balances found</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-[var(--color-border)]">
+          <div className="portfolio-table-scroll" role="region" aria-label="Portfolio assets, scroll horizontally for all columns" tabIndex={0}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -1086,6 +1137,10 @@ export function Portfolio() {
           formatPnlValue={formatPnlValue}
         />
       </div>
+
+      {tab === "krakenSimHodl" && <SimAccountTab variant="hodl" />}
+      {tab === "krakenSimMM" && <SimAccountTab variant="mm" />}
+      {tab === "krakenSimFutures" && <SimAccountTab variant="fut" />}
     </div>
   );
 }

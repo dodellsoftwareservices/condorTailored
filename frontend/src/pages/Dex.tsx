@@ -327,14 +327,14 @@ export function Dex() {
       ?.throttled_request ?? false;
   const emptyMessage = isFavorites
     ? throttledPage
-      ? "GeckoTerminal is rate limiting Condor — your favorites will reappear in a moment."
+      ? "GeckoTerminal is rate limiting Griffin — your favorites will reappear in a moment."
       : "No favorites yet — star a pool to keep it here."
     : isSearch && !isAddress
       ? debouncedQuery
         ? "That is not a pool or token address."
         : "Paste a pool or token address to find it."
       : throttledPage || upstream.limited
-        ? "GeckoTerminal is rate limiting Condor — no pools could be read. This clears on its own in a few seconds."
+        ? "GeckoTerminal is rate limiting Griffin — no pools could be read. This clears on its own in a few seconds."
         : "No pools found.";
 
   return (
@@ -342,7 +342,7 @@ export function Dex() {
       <div>
         <h1 className="text-lg font-semibold">DEX</h1>
         <p className="text-sm text-[var(--color-text-muted)]">
-          Pools Condor trades through Gateway. Open one to chart it, swap in it
+          Pools Griffin trades through Gateway. Open one to chart it, swap in it
           and provide liquidity to it.
         </p>
       </div>

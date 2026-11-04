@@ -62,7 +62,7 @@ export function collectViewFacts(): ViewFacts[] {
 export const VIEW_BLOCK_MAX_CHARS = 1200;
 
 const HEADER =
-  "[What the user is looking at right now, in the Condor dashboard. True of " +
+  "[What the user is looking at right now, in the Griffin dashboard. True of " +
   "this moment only — do not treat it as something the user said.]";
 
 /**

@@ -355,7 +355,7 @@ describe("the dock's routine picker", () => {
     expect(browserProps.initialSource).toBe("scout/alpha_check");
   });
 
-  it("narrows to Condor's own library, and takes the reader with it", async () => {
+  it("narrows to Griffin's own library, and takes the reader with it", async () => {
     await render();
 
     await click(runRow());
@@ -406,7 +406,7 @@ describe("the scope's default", () => {
     expect(scopeSelect().value).toBe("scout");
   });
 
-  it("is every routine in the unbound Condor conversation", async () => {
+  it("is every routine in the unbound Griffin conversation", async () => {
     await render("");
     await click(runRow());
 

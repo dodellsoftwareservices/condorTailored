@@ -57,7 +57,7 @@ def test_deleting_a_shipped_strategy_is_a_400_that_says_why(roots):
 
     assert res.status_code == 400
     detail = res.json()["detail"]
-    assert "ships with Condor" in detail
+    assert "ships with Griffin" in detail
     assert "running" not in detail.lower(), "the one thing it is not"
 
 

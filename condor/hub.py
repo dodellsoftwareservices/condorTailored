@@ -235,7 +235,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise HubError(
             f"The hub answered {code} with a redirect to another address; "
-            "Condor only talks to the hub it was built with",
+            "Griffin only talks to the hub it was built with",
             status=code,
         )
 
@@ -352,7 +352,7 @@ def _model(payload: dict, model, what: str):
         return model.model_validate(payload)
     except Exception as exc:  # noqa: BLE001 - pydantic's own message is the sentence
         raise HubError(
-            f"The hub described {what} in a shape this Condor cannot read: {exc}"
+            f"The hub described {what} in a shape this Griffin cannot read: {exc}"
         ) from exc
 
 
@@ -387,7 +387,7 @@ def browse(query: str = "", page: int = 1) -> list[Listing]:
         try:
             listings.append(Listing.model_validate(row))
         except Exception:  # noqa: BLE001 - one bad row is not a broken catalogue
-            log.info("hub: skipping a listing this Condor cannot read")
+            log.info("hub: skipping a listing this Griffin cannot read")
     return listings
 
 

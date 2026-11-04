@@ -1,4 +1,5 @@
 type ThemeColors = {
+  primary: string;
   up: string;
   down: string;
   green: string;
@@ -21,11 +22,12 @@ let cachedColors: ThemeColors | null = null;
 function readThemeColors(): ThemeColors {
   const style = getComputedStyle(document.documentElement);
   return {
+    primary: style.getPropertyValue("--color-primary").trim() || "#9bc2d4",
     up: style.getPropertyValue("--chart-up").trim() || "#22c55e",
-    down: style.getPropertyValue("--chart-down").trim() || "#ef4444",
+    down: style.getPropertyValue("--chart-down").trim() || "#f28b96",
     green: style.getPropertyValue("--color-green").trim() || "#22c55e",
-    red: style.getPropertyValue("--color-red").trim() || "#ef4444",
-    yellow: style.getPropertyValue("--color-yellow").trim() || "#eab308",
+    red: style.getPropertyValue("--color-red").trim() || "#f28b96",
+    yellow: style.getPropertyValue("--color-warning").trim() || "#f28b96",
     bg: style.getPropertyValue("--chart-bg").trim() || "#0f1525",
     grid: style.getPropertyValue("--chart-grid").trim() || "#1c2541",
     text: style.getPropertyValue("--chart-text").trim() || "#6b7994",

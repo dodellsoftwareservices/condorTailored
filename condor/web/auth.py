@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import secrets
 import time
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Query, WebSocket, status
+from fastapi import Depends, HTTPException, Query, Request, Response, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
+from condor.web import session_revocations
 from condor.web.models import WebUser
 from config_manager import ServerPermission, UserRole, get_config_manager
 
@@ -19,7 +21,24 @@ _ALGORITHM = "HS256"
 _TOKEN_EXPIRE_SECONDS = 86400  # 24 hours
 _LOGIN_TOKEN_TTL = 300  # one-time login tokens valid for 5 minutes
 
-_bearer_scheme = HTTPBearer()
+# ``auto_error=False``: a missing header must fall through to the cookie
+# check in ``get_current_user`` rather than HTTPBearer raising 403 on its own
+# before that check ever runs.
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+# The browser's session lives in an HttpOnly cookie, never in page JS/
+# localStorage — a stolen token via XSS can no longer be read out and reused
+# from elsewhere. ``Lax`` is what stops a *different* site's cross-origin
+# POST from riding along with this cookie (that is what SameSite exists to
+# do — the attacker's flow, not any flow this app offers on purpose); it
+# holds up here because every real request this dashboard makes is same-site
+# to begin with, so Lax costs this app nothing while still denying the
+# cookie to anyone else's form or fetch. ``create_app``'s Origin check on
+# mutating routes is the second, independent layer — this one is not meant
+# to stand alone.
+SESSION_COOKIE_NAME = "condor_session"
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 # In-memory store: token_str -> {user_id, username, first_name, created_at}
 _pending_login_tokens: dict[str, dict] = {}
@@ -53,6 +72,10 @@ def create_jwt(
         "username": username,
         "first_name": first_name,
         "role": role,
+        "jti": secrets.token_hex(16),
+        # Retire pre-migration credentials, including unlinked JWTs previously
+        # minted by /auth/session. Users sign in once after this upgrade.
+        "v": 1,
         "exp": int(time.time()) + _TOKEN_EXPIRE_SECONDS,
     }
     return jwt.encode(payload, _jwt_secret(), algorithm=_ALGORITHM)
@@ -60,12 +83,68 @@ def create_jwt(
 
 def decode_jwt(token: str) -> Optional[dict]:
     try:
-        return jwt.decode(token, _jwt_secret(), algorithms=[_ALGORITHM])
+        payload = jwt.decode(token, _jwt_secret(), algorithms=[_ALGORITHM])
     except JWTError:
         return None
+    jti = payload.get("jti")
+    if payload.get("v") != 1 or not isinstance(jti, str) or not jti:
+        return None
+    if session_revocations.is_revoked(jti):
+        return None
+    return payload
 
 
-# ── WebSocket auth (subprotocol header, query-param fallback) ──
+def revoke_jwt(token: str) -> None:
+    """Revoke one token server-side, ahead of its natural expiry.
+
+    ``logout`` clearing the cookie is, on its own, a no-op against the server
+    — the JWT itself stays valid for the rest of its 24h life, so anyone who
+    copied it earlier (a shared machine, a proxy log, an XSS payload) keeps
+    using it regardless of whether the real owner logged out. This closes
+    that: the token decodes once here (unrevoked, since it has not happened
+    yet), its ``jti`` is recorded until its own ``exp``, and every
+    ``decode_jwt`` call from this point on refuses it immediately. A token
+    with no ``jti`` (none should exist post-rollout) or already expired is a
+    silent no-op — there is nothing left to revoke.
+    """
+    try:
+        payload = jwt.decode(token, _jwt_secret(), algorithms=[_ALGORITHM])
+    except JWTError:
+        return
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if not jti or not exp:
+        return
+    session_revocations.revoke(jti, int(exp))
+
+
+# ── Session cookie (browser) ──
+
+
+def set_session_cookie(response: Response, token: str, request: Request) -> None:
+    """Set the browser's session cookie after a successful login.
+
+    ``secure`` is conditional on the request having actually arrived over
+    HTTPS rather than hardcoded True: local mode serves plain HTTP on
+    ``127.0.0.1``, and a cookie marked Secure there would silently never be
+    sent back on the next request, breaking login with no visible error.
+    """
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        max_age=_TOKEN_EXPIRE_SECONDS,
+        path="/",
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+
+
+# ── WebSocket auth (browser cookie, service-client subprotocol) ──
 
 # Sentinel subprotocol that marks a JWT-carrying handshake. The client offers
 # ``[WS_AUTH_SUBPROTOCOL, <jwt>]`` as Sec-WebSocket-Protocol values so the token
@@ -78,16 +157,26 @@ def extract_ws_token(
 ) -> tuple[Optional[str], Optional[str]]:
     """Extract the auth JWT from a WebSocket handshake.
 
-    Prefers the ``Sec-WebSocket-Protocol`` subprotocol header: the client offers
-    ``[WS_AUTH_SUBPROTOCOL, <jwt>]`` and we read the token from the second value.
-    Falls back to the (deprecated, log-leaking) ``?token=`` query param so live
-    sessions and older clients keep working during rollout.
+    Browsers send the HttpOnly session cookie automatically. Service clients
+    can send ``[WS_AUTH_SUBPROTOCOL, <jwt>]`` as subprotocol values. A browser
+    Origin must match this endpoint or the configured CORS origins. URL token
+    parameters are ignored because access logs retain them.
 
     Returns ``(token, accept_subprotocol)``. ``accept_subprotocol`` is the
     sentinel (never the token) when the subprotocol path is used and must be
     echoed back in ``ws.accept(subprotocol=...)`` or the browser rejects the
-    handshake; it is ``None`` for the query-param fallback.
+    handshake; it is ``None`` for cookie authentication.
     """
+    origin = getattr(ws, "headers", {}).get("origin")
+    if origin:
+        from condor.web.app import _build_cors_origins
+
+        scheme = "https" if ws.url.scheme == "wss" else "http"
+        if (
+            origin != f"{scheme}://{ws.url.netloc}"
+            and origin not in _build_cors_origins()
+        ):
+            return None, None
     subprotocols = ws.scope.get("subprotocols", [])
     if (
         subprotocols
@@ -95,17 +184,57 @@ def extract_ws_token(
         and len(subprotocols) >= 2
     ):
         return subprotocols[1], WS_AUTH_SUBPROTOCOL
-    return query_token, None
+    # URL credentials are no longer accepted: access logs retain query strings.
+    return ws.cookies.get(SESSION_COOKIE_NAME), None
+
+
+async def watch_websocket_session(ws: WebSocket, token: str, validate) -> None:
+    """Close idle sockets after expiry/logout, including across processes."""
+    try:
+        while True:
+            await asyncio.sleep(2)
+            if validate(token) is None:
+                await ws.close(code=4001, reason="Session expired")
+                return
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.debug("Session watcher ended after WebSocket closed", exc_info=True)
 
 
 # ── FastAPI dependency ──
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
 ) -> WebUser:
-    """FastAPI dependency that extracts and validates the JWT."""
-    payload = decode_jwt(credentials.credentials)
+    """FastAPI dependency that extracts and validates the session JWT.
+
+    The browser authenticates via the HttpOnly session cookie set by
+    ``token_login``/``local_login`` — the token never touches page JS, so an
+    XSS payload can no longer read it out of ``localStorage`` and replay it.
+    A bare ``Authorization: Bearer`` header is still accepted, but only from
+    loopback: the only two callers that ever send one are the MCP subprocess
+    (``mcp_servers/condor/condor_client.py``) and the shift runner
+    (``condor/shift.py``), both of which mint their own JWT with
+    ``create_jwt`` and call this server at ``127.0.0.1`` exclusively.
+    Narrowing bearer to loopback keeps that path working without leaving a
+    second, equally-valid way for a leaked browser token to authenticate from
+    anywhere else on the network.
+    """
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if token is None and credentials is not None:
+        client = request.client
+        if client and client.host in _LOOPBACK_HOSTS:
+            token = credentials.credentials
+
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+
+    payload = decode_jwt(token)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
@@ -306,3 +435,14 @@ def redeem_login_token(token: str) -> Optional[dict]:
         return None
 
     return info
+
+
+def peek_login_token(token: str) -> Optional[dict]:
+    """Inspect a pending login without consuming its second-factor challenge.
+
+    The route verifies the factor synchronously, then redeems before yielding
+    control, so concurrent requests cannot both complete the same login.
+    """
+    _gc_expired_login_tokens(time.time())
+    info = _pending_login_tokens.get(token)
+    return dict(info) if info is not None else None

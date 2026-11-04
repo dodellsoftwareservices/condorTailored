@@ -30,7 +30,7 @@ export function UpstreamNotice({
         Market data is rate limited
       </span>
       <span className="text-[var(--color-text-muted)]">
-        GeckoTerminal is throttling Condor, so pools and prices may be missing or
+        GeckoTerminal is throttling Griffin, so pools and prices may be missing or
         stale.
         {state.retryIn > 0
           ? ` Retrying in ${state.retryIn}s.`

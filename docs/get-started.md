@@ -1,16 +1,16 @@
 # Get started
 
-Condor's agents watch the market and place trades on your exchange account for you. This guide takes you from a fresh install to your first agent running. Plan on about twenty minutes.
+Griffin's agents watch the market and place trades on your exchange account for you. This guide takes you from a fresh install to your first agent running. Plan on about twenty minutes.
 
-You need two things: an account on a crypto exchange, and an API key from that account. An API key is a pair of long codes that lets Condor trade for you without ever knowing your password.
+You need two things: an account on a crypto exchange, and an API key from that account. An API key is a pair of long codes that lets Griffin trade for you without ever knowing your password.
 
-> A note on practice accounts. Most exchanges offer a practice version (often called testnet) where the money isn't real. The agents that come with Condor are set up for the real Binance and Bitget futures markets, not the practice ones. To use a practice account you have to copy an agent and change which exchange it uses, and that means editing its instructions. If that's more than you want to take on, start on the real exchange with a very small amount and the limits in [Step 4](#step-4-try-a-dry-run).
+> A note on practice accounts. Most exchanges offer a practice version (often called testnet) where the money isn't real. The agents that come with Griffin are set up for the real Binance and Bitget futures markets, not the practice ones. To use a practice account you have to copy an agent and change which exchange it uses, and that means editing its instructions. If that's more than you want to take on, start on the real exchange with a very small amount and the limits in [Step 4](#step-4-try-a-dry-run).
 
-## Step 1. Say hello to Condor
+## Step 1. Say hello to Griffin
 
-Click **Agents** at the top, then **Condor** in the list on the left. Type "hi" in the box at the bottom and send it.
+Click **Agents** at the top, then **Griffin** in the list on the left — that's the general assistant, not one of the trading specialists below. Type "hi" in the box at the bottom and send it.
 
-If Condor answers, the AI behind your agents is working. If nothing comes back, see "If something goes wrong" at the bottom of this guide.
+If Griffin answers, the AI behind your agents is working. If nothing comes back, see "If something goes wrong" at the bottom of this guide.
 
 ## Step 2. Connect your exchange
 
@@ -23,7 +23,7 @@ When you create the key on the exchange's website, switch on trading and leave w
 
 To check it worked, open **Portfolio**. Your balance should be there.
 
-Hyperliquid and Solana use a wallet instead of a key. Hyperliquid has a **Connect Hyperliquid** button on the same page. Solana wallets go under **Gateway** in Settings.
+Hyperliquid does not serve this region and has been removed. Solana uses a wallet instead of a key. Solana wallets go under **Gateway** in Settings.
 
 If you change a key later, restart anything that was already running. It keeps using the old key until you do.
 
@@ -33,10 +33,10 @@ Each agent has one job, and each trades on particular exchanges. Pick one that m
 
 - **Adaptive Grid Trader** places a ladder of buy and sell orders on one coin and adjusts it once an hour. It has two ready-made setups: BTC on Bitget and SOL on Binance.
 - **Directional Trader** follows price trends, trading in the direction a coin is moving. It has one setup, on Binance futures.
-- **Market Making Expert** places buy and sell orders on both sides of the price and earns the small gap between them. One setup uses the exchange you name when you start it. The other works on Hyperliquid.
+- **Market Making Expert** places buy and sell orders on both sides of the price and earns the small gap between them. One setup uses the exchange you name when you start it.
 - **Solana DEX LP Expert** puts money into liquidity pools on Solana. It needs a Solana wallet connected under Gateway.
 - **Fundamental Analyst** researches a company or crypto project and tells you whether it looks cheap or expensive. It doesn't trade.
-- **Condor** is the general assistant from Step 1. Ask it about your portfolio or your bots.
+- **Griffin** is the general assistant from Step 1. Ask it about your portfolio or your bots.
 
 For example, with a Binance futures key connected, the SOL grid setup and the Directional Trader's setup have an account to trade on. The BTC grid setup needs Bitget.
 
@@ -69,7 +69,7 @@ When a dry run looks sensible:
 
 1. Click **Start** again, choose **Run Once**, and press **Execute Once**. The agent makes one round of decisions and may place real orders. Afterwards, check **Portfolio** and your exchange to confirm it did what you expected.
 2. When that goes well, click **Start** once more and choose **Loop**. Set **Frequency (sec)**, which is how often the agent checks the market. 3600 means once an hour, which is what the grid setups are built for. Checking more often uses more of your AI allowance. Then press **Start Session**.
-3. Tick **Resume after Condor restarts** if you want the agent to carry on by itself after a restart.
+3. Tick **Resume after Griffin restarts** if you want the agent to carry on by itself after a restart.
 
 Keep the amount small for the first few days.
 
@@ -79,14 +79,20 @@ The agent's page shows each round: what it saw, what it decided, and what it did
 
 **Pause** holds a session and **Resume** carries on where it left off. **Stop** ends it, after you confirm.
 
-Trades that are already open can stay open on the exchange after an agent stops or Condor is turned off. Check **Portfolio** and **Bots**, and close anything you don't want to keep.
+Trades that are already open can stay open on the exchange after an agent stops or Griffin is turned off. Check **Portfolio** and **Bots**, and close anything you don't want to keep.
 
 ## Good habits
 
 - Keep the amount and the limits small until you trust an agent.
-- The Condor portal has no password. Anyone who can open it can place trades. By default it only opens on the computer Condor runs on, so leave it that way.
+- By default, the portal only opens on the computer Griffin runs on, with no login required on that computer — so leave it that way unless you know you need remote access. If you do expose it beyond that computer (for example over Tailscale), turn on two-factor login first — see [Securing your login](#securing-your-login) below.
 - The grid agents expect to be the only thing trading that coin on that account. Don't trade the same coin by hand while one is running.
 - Read what the agent wrote about each decision. If something surprises you, stop it.
+
+## Securing your login
+
+If more than one person can reach the portal, or you access it from outside your own network, turn on two-factor login: **Settings → Security → Enable 2FA**. It asks for a 6-digit code from an authenticator app (like Google Authenticator or Authy) on top of the normal login, and gives you a set of one-time recovery codes.
+
+**Save those recovery codes before you confirm.** Each one works exactly once, and the page will not let you continue until you tick the box confirming you've saved them. If you're an approved user (not an admin) and you lose both your authenticator device and these codes, an admin can reset your 2FA from **Settings → Admin**, your name in the list, **Reset 2FA**. Admin accounts have no such reset today — if you're an admin, losing both locks you out permanently, with no in-app recovery. Save the codes somewhere durable (a password manager, not a note on the same computer) before you turn this on, and double-check that step if you're the admin.
 
 ## If something goes wrong
 
@@ -94,7 +100,7 @@ Trades that are already open can stay open on the exchange after an agent stops 
 
 **The agent never answers, or stops partway through the day.** Free AI models have a daily limit, around 1000 requests. Wait until tomorrow, or switch to a paid model. The last section of this guide shows how.
 
-**The Start window shows the server as offline.** Condor can't reach its trading engine. Open Docker Desktop and check that it's running.
+**The Start window shows the server as offline.** Griffin runs two separate things: the dashboard you're looking at, and a Docker-based trading engine (`hummingbot-api`) alongside it that actually talks to exchanges. This message means the second one isn't reachable. Open Docker Desktop and check that it's running, then from the `condor` folder run `make doctor` — it specifically checks whether the trading engine is up and authenticating, and says what's wrong if it isn't.
 
 **Start is refused.** The agent's setup check failed, for example because the account doesn't hold enough of the right coin. The message on screen says what's missing.
 
@@ -104,14 +110,17 @@ Trades that are already open can stay open on the exchange after an agent stops 
 
 ## For terminal users
 
-Everything above is done in the portal. These commands are for the computer Condor runs on. Run them from the `condor` folder.
+Everything above is done in the portal. These commands are for the computer Griffin runs on — the codebase and its `make` commands are still named `condor`. Run them from the `condor` folder.
 
 ```
-make run          # start Condor
-make stop         # stop Condor
-make doctor       # check the setup
+make run          # start Griffin
+make stop         # stop Griffin
+make restart      # restart Griffin — does NOT touch the separate Docker trading engine (see below)
+make doctor       # check the setup, including the Docker trading engine
 make pick-model   # choose the AI
 ```
+
+`make run`/`stop`/`restart` only manage Griffin's own process. The Docker-based trading engine (`hummingbot-api`) is a second, separate thing started the first time by `make setup` — if trades stop working but Griffin itself is responsive, check that stack (`docker ps`, or just `make doctor`) before assuming Griffin itself is broken.
 
 After `make run`, open http://localhost:8088 in your browser.
 

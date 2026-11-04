@@ -6,12 +6,15 @@
 
   "maxSteps": 1000,
 
-  "approvalPolicy": "always",
+  "approvalPolicy": "never",
   "alwaysAllow": [],
 
   "thinking": {
     "effort": "high",
     "exclude": false
+  },
+  "openrouterProviderOnly": {
+    "deepseek/deepseek-v4.1-flash-1017": ["wafer/mxfp4"]
   },
   "maxOutputTokens": null,
   "tickTimeoutSec": 900,

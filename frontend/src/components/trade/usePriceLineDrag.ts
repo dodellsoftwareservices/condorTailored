@@ -23,6 +23,7 @@
 // left to say for the length of the gesture.
 
 import { useCallback, useEffect, useRef } from "react";
+import { getElementScale } from "@/lib/layout-scale";
 
 import { roundToPricePrecision } from "@/lib/formatters";
 import type { PickSlot } from "@/components/executor/types";
@@ -84,7 +85,7 @@ export function usePriceLineDrag(params: PriceLineDragParams): PriceLineDragHand
   const rowOf = (clientY: number): number | null => {
     const container = paramsRef.current.getContainer();
     if (!container) return null;
-    return clientY - container.getBoundingClientRect().top;
+    return (clientY - container.getBoundingClientRect().top) / getElementScale(container);
   };
 
   /** Map one pixel row through the price scale and report it, rounded. */

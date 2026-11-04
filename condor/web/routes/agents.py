@@ -933,7 +933,7 @@ class UpdateAgentMdRequest(BaseModel):
 HUB_TRUST = (
     "The hub is a discovery service, not a security boundary. A validated "
     "badge means a human reviewed one submitted revision once; it is not a "
-    "signature, Condor verifies no bundle against it, and it does not shorten "
+    "signature, Griffin verifies no bundle against it, and it does not shorten "
     "this review. Whatever you install arrives muted and unstarted, and what "
     "protects you is reading it."
 )
@@ -1324,6 +1324,15 @@ async def _get_client_for_strategy(
 
     server_name = _strategy_server(strategy_dir, default_config)
     if not server_name:
+        # An agent that declares ``server_required: false`` (the simulated-exchange
+        # seat) has no server by design, so "No server configured" would read as
+        # a fault on a loop that is healthy. It has no executor records to price.
+        try:
+            agent = _agent_store().get(strategy_dir.parent.parent.name)
+        except Exception:
+            agent = None
+        if agent is not None and not agent.server_required:
+            return StrategyClient(None, "", "")
         return StrategyClient(None, "", "no_server")
     if not _may_use_strategy_server(server_name, principal):
         log.warning(
@@ -2940,7 +2949,13 @@ async def set_agent_code_trust(
     try:
         digest = code_trust.allow(agent.slug, req.name, source.read_text())
     except OSError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # str(exc) here is a raw filesystem error (path, errno) — useful to
+        # an operator reading logs, not to a browser (system review
+        # 2026-10-31, usability finding).
+        log.error("Could not read routine source for code-trust: %s", exc)
+        raise HTTPException(
+            status_code=400, detail="Could not read that routine's source file"
+        ) from exc
     return {"kind": "routine", "name": req.name, "allowed": True, "digest": digest}
 
 
@@ -3147,7 +3162,10 @@ async def update_agent_from_bundle(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except OSError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        log.error("Could not apply agent bundle update for %s: %s", slug, exc)
+        raise HTTPException(
+            status_code=500, detail="Could not write the updated agent files"
+        ) from exc
 
 
 @router.get("/{slug}/bundle")
@@ -5283,7 +5301,10 @@ async def install_from_hub(
             else HTTPException(status_code=400, detail=str(exc))
         ) from exc
     except OSError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        log.error("Could not apply hub listing %s: %s", listing_id, exc)
+        raise HTTPException(
+            status_code=500, detail="Could not write the installed agent's files"
+        ) from exc
     return {"verb": verb, "listing": listing.model_dump(), "plan": result}
 
 

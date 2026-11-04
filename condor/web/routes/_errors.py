@@ -20,7 +20,7 @@ from fastapi import HTTPException
 
 from condor.fetchers.executors import describe_executor_error
 
-__all__ = ["upstream_error"]
+__all__ = ["upstream_error", "equity_upstream_error"]
 
 
 def upstream_error(action: str, exc: Exception) -> HTTPException:
@@ -38,3 +38,26 @@ def upstream_error(action: str, exc: Exception) -> HTTPException:
     status, message = describe_executor_error(exc)
     code = 400 if status is not None and 400 <= status < 500 else 502
     return HTTPException(status_code=code, detail=f"{action}: {message}")
+
+
+def equity_upstream_error(code: str, action: str, exc: Exception) -> HTTPException:
+    """:func:`upstream_error`'s sibling for the equities routes, not a reuse of it.
+
+    ``upstream_error`` reads ``describe_executor_error(exc)``, which expects
+    the Hummingbot API client's own exception shape (a ``.status`` /
+    ``.message`` pair). ``AlpacaAPIError`` carries its code as
+    ``.status_code`` instead, and ``EquityDataError`` (condor/equity_market_data.py)
+    carries no HTTP status at all — both would silently fall through
+    ``upstream_error`` to a flat 502, even on a clean 4xx such as an unknown
+    symbol or insufficient buying power.
+
+    ``code`` is a fixed, machine-readable string the frontend branches on,
+    matching the ``{code, message}`` shape ``equity_rollout.py``'s own 503
+    already uses — so every equities error body looks the same regardless of
+    which layer raised it.
+    """
+    status = getattr(exc, "status_code", None)
+    http_status = 400 if isinstance(status, int) and 400 <= status < 500 else 502
+    return HTTPException(
+        status_code=http_status, detail={"code": code, "message": f"{action}: {exc}"}
+    )

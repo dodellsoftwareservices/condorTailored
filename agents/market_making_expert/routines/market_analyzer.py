@@ -18,9 +18,9 @@ CATEGORY = "Analysis"
 class Config(BaseModel):
     """Analyze market regime across multiple timeframes for a trading pair."""
 
-    trading_pair: str = Field(default="JTO-USDT", description="Trading pair to analyze")
+    trading_pair: str = Field(default="BTC-USDC", description="Trading pair to analyze")
     connector_name: str = Field(
-        default="binance_perpetual", description="Exchange connector"
+        default="lighter_perpetual", description="Exchange connector"
     )
 
 

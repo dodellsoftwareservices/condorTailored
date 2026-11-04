@@ -20,6 +20,8 @@ PORTFOLIO_HISTORY_RANGES: Dict[str, Tuple[int, str]] = {
 }
 
 # Hyperliquid stable/quote symbols (perp margin reports "USD", spot holds "USDC").
+# NOTE: Hyperliquid is region-blocked for this install and no credentials exist;
+# this is dormant connector-shape handling kept for hummingbot parity.
 HL_STABLES = frozenset({"USD", "USDC"})
 
 # Reported for the perp connector whose duplicated collateral was dropped, so a

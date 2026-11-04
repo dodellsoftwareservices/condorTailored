@@ -14,6 +14,7 @@ import pytest
 from condor import alpaca_paper as A
 from condor.reports.builder import ReportBuilder
 from routines import alpaca_etf_sweep as S
+from routines.base import normalize_result
 
 # ── the client: paper only ──
 
@@ -195,7 +196,7 @@ def run_sweep(monkeypatch, *, realized, alpaca=None, **cfg):
     monkeypatch.setattr(S, "fetch_bots_status", fetch)
     monkeypatch.setattr(S, "AlpacaPaperClient", lambda: alpaca)
     out = asyncio.run(S.run(S.Config(**cfg), SimpleNamespace(_chat_id=1)))
-    return out, alpaca
+    return normalize_result(out).text, alpaca
 
 
 def test_dry_run_places_nothing_and_leaves_the_ledger_alone(monkeypatch, data):
@@ -296,6 +297,24 @@ def test_a_ledger_without_a_total_is_corrupt_too(monkeypatch, data):
     assert out.startswith("Sweep not run:")
 
 
+def test_a_handled_sweep_failure_reports_as_failed_not_ok(monkeypatch, data):
+    """A caught LedgerError must not report ✅ through the executor (finding #10)."""
+    (data / S.LEDGER_NAME).write_text("{not json")
+    alpaca = FakeAlpaca()
+
+    async def get_client(chat_id, context=None):
+        return object()
+
+    async def fetch(client):
+        return bot_status(200.0)
+
+    monkeypatch.setattr(S, "get_client", get_client)
+    monkeypatch.setattr(S, "fetch_bots_status", fetch)
+    monkeypatch.setattr(S, "AlpacaPaperClient", lambda: alpaca)
+    raw = asyncio.run(S.run(S.Config(dry_run=False), SimpleNamespace(_chat_id=1)))
+    assert normalize_result(raw).failed is True
+
+
 def test_unreadable_bot_status_is_reported_not_swept_as_zero(monkeypatch, data):
     async def get_client(chat_id, context=None):
         return object()
@@ -306,7 +325,9 @@ def test_unreadable_bot_status_is_reported_not_swept_as_zero(monkeypatch, data):
     monkeypatch.setattr(S, "get_client", get_client)
     monkeypatch.setattr(S, "fetch_bots_status", fetch)
     monkeypatch.setattr(S, "AlpacaPaperClient", lambda: FakeAlpaca())
-    out = asyncio.run(S.run(S.Config(dry_run=False), SimpleNamespace(_chat_id=1)))
+    out = normalize_result(
+        asyncio.run(S.run(S.Config(dry_run=False), SimpleNamespace(_chat_id=1)))
+    ).text
     assert out.startswith("Sweep not run:")
     assert "api down" in out
 
@@ -327,5 +348,7 @@ def test_missing_alpaca_keys_are_reported_not_raised(monkeypatch, data):
         return object()
 
     monkeypatch.setattr(S, "get_client", get_client)
-    out = asyncio.run(S.run(S.Config(), SimpleNamespace(_chat_id=1)))
+    out = normalize_result(
+        asyncio.run(S.run(S.Config(), SimpleNamespace(_chat_id=1)))
+    ).text
     assert out.startswith("Alpaca not configured.")

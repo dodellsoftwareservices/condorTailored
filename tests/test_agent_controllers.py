@@ -250,7 +250,7 @@ def test_write_accepts_an_untyped_source_once_controller_md_says(roots):
 
 def test_delete_refuses_stock_and_reverts_a_fork(roots):
     _controller(roots.stock / "mm", "pmm_king")
-    with pytest.raises(ControllerError, match="ships with Condor"):
+    with pytest.raises(ControllerError, match="ships with Griffin"):
         ac.delete("mm", "pmm_king")
     ac.write_source("mm", "pmm_king", MM_SOURCE + "# fork\n")
     assert ac.delete("mm", "pmm_king")["reverted_to_stock"] is True

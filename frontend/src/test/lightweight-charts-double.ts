@@ -66,7 +66,7 @@ interface ChartRecord {
   /** The options `createChart` was handed — *not* merged into `options`. */
   initialOptions: Dict;
   chart: Dict;
-  /** One series object shared by every `addSeries` call on this chart. */
+  /** First/primary series, retained for existing geometry assertions. */
   series: Dict;
   timeScale: Dict;
   /** The series-type sentinel of each `addSeries` call, in order. */
@@ -126,7 +126,8 @@ export const createChart = vi.fn((container: unknown, initialOptions: Dict = {})
     crosshairHandlers: [],
   };
 
-  const series = stub({
+  const makeSeries = () => {
+    const series = stub({
     coordinateToPrice: vi.fn((y: number) => scale.toPrice(y)),
     priceToCoordinate: vi.fn((price: number) => scale.toCoordinate(price)),
     createPriceLine: vi.fn(() => ({})),
@@ -138,17 +139,18 @@ export const createChart = vi.fn((container: unknown, initialOptions: Dict = {})
       record.primitives = record.primitives.filter((p) => p !== primitive);
       (primitive as { detached?: () => void }).detached?.();
     }),
-  });
+    });
+    return series;
+  };
+  const series = makeSeries();
 
   const timeScale = stub({ scrollPosition: vi.fn(() => 0) });
 
   const chart = stub({
-    // Real charts mint a series per call; one shared object per chart is enough
-    // here and lets a test read `chartDouble.series` without caring which of a
-    // component's several series it got.
+    // A volume or indicator write must not count as a candlestick redraw.
     addSeries: vi.fn((seriesType: unknown) => {
       record.addedSeries.push(seriesType);
-      return series;
+      return record.addedSeries.length === 1 ? series : makeSeries();
     }),
     removeSeries: vi.fn((removed: unknown) => {
       record.removedSeries.push(removed);

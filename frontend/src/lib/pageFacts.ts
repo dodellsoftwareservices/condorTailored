@@ -14,6 +14,7 @@ import type {
   ConsolidatedPosition,
   ConsolidatedPositionsResponse,
   ControllerInfo,
+  DashboardResponse,
   ExecutorInfo,
   PoolSummary,
   PortfolioHistoryResponse,
@@ -95,15 +96,32 @@ export function routeFacts(
   search: string,
   qc?: QueryClient,
 ): ViewFacts | null {
-  // The home already *is* the chat; telling the agent "the user is looking at
-  // a chat with you" is noise, and there is no second view of this route to
-  // exempt from the rule. What the reader has open *beside* the transcript —
-  // the desk's Execution panel, since FEAT-114 — is the conversation's own
-  // furniture rather than a page, and the agent can read the same fleet
-  // through its tools at any scope it is asked about.
-  if (pathname === "/") return null;
-
   const params = new URLSearchParams(search);
+  if (pathname === "/agents") return null;
+  if (pathname === "/") {
+    // These old home links redirect to the agent workspace before rendering.
+    if (["agent", "ask", "conversation", "panel", "desk"].some((key) => params.has(key)) || ["chat", "fleet"].includes(params.get("view") || "")) return null;
+    const range = params.get("range") || "1M";
+    const mode = params.get("mode") === "live" ? "live" : "paper";
+    const data = mode === "paper" ? qc?.getQueryData<DashboardResponse>(["dashboard-paper", range]) : undefined;
+    const account = data?.accounts.find((item) => item.id === params.get("account")) ?? data?.summary;
+    return {
+      label: "Portfolio dashboard",
+      onScreen: {
+        environment: mode,
+        "history range": range,
+        ...(account ? {
+          account: account.label,
+          "starting capital (USD)": account.starting_capital,
+          "equity (USD)": account.equity,
+          "PnL since funding (USD)": account.pnl,
+          "ROI (%)": account.roi_pct,
+          "batting average (%)": account.batting_average,
+          "daily Sharpe": account.sharpe,
+        } : {}),
+      },
+    };
+  }
   // A page's own tab, where it has one — `/routines?tab=reports`, `/portfolio`.
   // Read here rather than in the entries that use it, so a route never has to
   // parse a search string of its own.

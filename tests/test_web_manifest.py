@@ -60,7 +60,7 @@ def test_manifest_is_served_as_a_manifest(client):
 
 def test_manifest_declares_an_installable_app(manifest):
     """The keys a browser reads before it will offer to install."""
-    assert manifest["name"] == "Condor"
+    assert manifest["name"] == "Griffin"
     assert manifest["start_url"] == "/"
     assert manifest["scope"] == "/"
     assert manifest["display"] == "standalone"

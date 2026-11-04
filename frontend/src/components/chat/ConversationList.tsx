@@ -134,9 +134,9 @@ export const ConversationList = memo(function ConversationList({
 
       <button
         onClick={onNew}
-        className="flex items-center gap-2 border-b border-[var(--color-border)] px-3 py-2.5 text-left text-sm text-[var(--color-primary)] hover:bg-[var(--color-surface-hover)]"
+        className="flex items-center gap-2 border-b border-[var(--color-border)] px-3 py-2.5 text-left text-sm font-bold text-white hover:bg-[var(--color-surface-hover)]"
       >
-        <Plus className="h-4 w-4" />
+        <Plus className="h-4 w-4" strokeWidth={2.5} />
         New chat
       </button>
 
@@ -250,7 +250,7 @@ export const ConversationList = memo(function ConversationList({
                           ) : (
                             <span className="flex items-center gap-1">
                               <MessageSquare className="h-2.5 w-2.5" />
-                              Condor
+                              Griffin
                             </span>
                           )}
                           {meta.surface === "tg" && (
@@ -284,8 +284,8 @@ export const ConversationList = memo(function ConversationList({
                           }`}
                           title={
                             meta.share_id
-                              ? "Shared with Condor — review or unshare"
-                              : "Share with Condor"
+                              ? "Shared with Griffin — review or unshare"
+                              : "Share with Griffin"
                           }
                         >
                           <Share2 className="h-3 w-3" />

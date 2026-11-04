@@ -69,7 +69,7 @@ export function NotificationsSettings() {
     onError: (err: Error) =>
       setError(
         err instanceof PermissionDeniedError
-          ? "This browser is blocking notifications for Condor. Only the browser can undo that — open the padlock in the address bar and allow notifications, then try again."
+          ? "This browser is blocking notifications for Griffin. Only the browser can undo that — open the padlock in the address bar and allow notifications, then try again."
           : err.message,
       ),
   });
@@ -95,7 +95,7 @@ export function NotificationsSettings() {
               Serve the dashboard over HTTPS —{" "}
               <code className="text-[var(--color-text)]">tailscale serve</code> gives
               you one on your tailnet — and this switch appears. Nothing else about
-              Condor changes; the bell above keeps working exactly as it does now.
+              Griffin changes; the bell above keeps working exactly as it does now.
             </p>
           </div>
         </div>
@@ -147,7 +147,7 @@ export function NotificationsSettings() {
           <span className="block text-xs text-[var(--color-text-muted)]">
             {on
               ? "Anything that lands in the bell also lands in Notification Center."
-              : "Ring this machine even when Condor is closed."}
+              : "Ring this machine even when Griffin is closed."}
           </span>
         </span>
       </button>
@@ -227,8 +227,8 @@ function Frame({ children }: { children: React.ReactNode }) {
         </h3>
         <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
           A routine that finishes at 3am, a delegation that completes while the
-          laptop is asleep — these ring on this machine with no Condor window
-          open. Clicking one opens Condor on the thing that happened.
+          laptop is asleep — these ring on this machine with no Griffin window
+          open. Clicking one opens Griffin on the thing that happened.
         </p>
       </section>
       {children}

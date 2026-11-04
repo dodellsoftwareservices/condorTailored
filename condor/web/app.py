@@ -7,10 +7,12 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from condor.telemetry.taps import web_tap
+from condor.web.api_docs import register_api_docs
+from condor.web.equity_rollout import equity_rollout_tap
 from condor.web.routes import (
     admin,
     agents,
@@ -23,11 +25,15 @@ from condor.web.routes import (
     confirmations,
     controller_performance,
     conversations,
+    dashboard,
     dex,
+    equities,
+    equity_diagnostics,
     executors,
     market,
     meta,
     notifications,
+    paper_equities,
     portfolio,
     positions,
     push,
@@ -37,6 +43,7 @@ from condor.web.routes import (
     sessions,
     settings,
     sharing,
+    sim_exchange,
     transcribe,
     updates,
     ws,
@@ -58,6 +65,42 @@ def _build_cors_origins() -> list[str]:
         if origin not in origins:
             origins.append(origin)
     return origins
+
+
+# State-changing methods a cross-site form or script could ride the session
+# cookie along with — the thing SameSite=Lax (``web/auth.py``) and this
+# backstop both exist to stop. GET/HEAD never mutate anything by convention
+# here, so they are left unchecked the same way CORS never blocks them.
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+async def _origin_check(request: Request, call_next):
+    """A second, independent layer behind ``SameSite=Lax``.
+
+    Lax relies on the browser honouring SameSite; this does not — it checks
+    the ``Origin`` header the browser attaches to the request itself, which a
+    page cannot spoof. Same-origin to this exact request always passes
+    (covers every real same-site call, proxied or not, without hand-listing
+    hosts); the explicit CORS allow-list passes too, for the one legitimate
+    cross-origin caller (the Vite dev server). Anything else sending an
+    ``Origin`` on a state-changing request is refused outright — a cross-site
+    form POST sends one, and it will never be either of the above.
+
+    Only requests that *send* an Origin are checked: curl, server-to-server
+    calls and the MCP bridge send none, and this is not the layer meant to
+    gate those (``get_current_user`` already requires a valid bearer/cookie
+    on every one of them regardless).
+    """
+    if request.method in _UNSAFE_METHODS:
+        origin = request.headers.get("origin")
+        if origin:
+            same_origin = origin == f"{request.url.scheme}://{request.url.netloc}"
+            if not same_origin and origin not in _build_cors_origins():
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Cross-origin request refused"},
+                )
+    return await call_next(request)
 
 
 # The SPA shell and every unhashed file beside it: revalidate on each load.
@@ -118,7 +161,14 @@ def _adopt_orphaned_bundle(dist: Path) -> None:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Condor Dashboard API", version="0.1.0")
+    app = FastAPI(
+        title="Griffin Dashboard API",
+        version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    register_api_docs(app)
 
     # CORS – allow Vite dev server, local origins, and WEB_URL origin (e.g. Tailscale hostname)
     app.add_middleware(
@@ -134,12 +184,15 @@ def create_app() -> FastAPI:
     # own router and no path parameter — a bot name, a server name, a report id
     # — is ever read. No-op unless the admin opted in.
     app.middleware("http")(web_tap)
+    app.middleware("http")(equity_rollout_tap)
+    app.middleware("http")(_origin_check)
 
     # ── API routes ──
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1")
     app.include_router(servers.router, prefix="/api/v1")
     app.include_router(portfolio.router, prefix="/api/v1")
+    app.include_router(dashboard.router, prefix="/api/v1")
     app.include_router(bots.router, prefix="/api/v1")
     app.include_router(controller_performance.router, prefix="/api/v1")
     app.include_router(archived.router, prefix="/api/v1")
@@ -164,6 +217,10 @@ def create_app() -> FastAPI:
     app.include_router(code.router, prefix="/api/v1")
     app.include_router(reports.router, prefix="/api/v1")
     app.include_router(settings.router, prefix="/api/v1")
+    app.include_router(equity_diagnostics.router, prefix="/api/v1")
+    app.include_router(equities.router, prefix="/api/v1")
+    app.include_router(paper_equities.router, prefix="/api/v1")
+    app.include_router(sim_exchange.router, prefix="/api/v1")
     app.include_router(sessions.router, prefix="/api/v1")
     app.include_router(chat_ws.router, prefix="/api/v1")
     app.include_router(confirmations.router, prefix="/api/v1")

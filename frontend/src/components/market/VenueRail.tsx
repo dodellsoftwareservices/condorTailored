@@ -159,7 +159,7 @@ function VenueGroup({
           // equal and diverge the moment you browse elsewhere.
           aria-current={c === current ? "true" : undefined}
           onClick={() => onSelect(c)}
-          // Gold is reserved for a venue you can actually execute on, so a
+          // The accent is reserved for a venue you can actually execute on, so a
           // selected view-only venue is marked by its band alone. Selection is
           // still unmistakable; it just never borrows the tradable colour.
           className={`flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs transition-colors ${

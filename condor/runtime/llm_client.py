@@ -104,6 +104,10 @@ def build_llm_client(
             **extra,
         )
 
+    error = _cost_cap_backend_error()
+    if error:
+        raise RuntimeError(error)
+
     # ACP subprocess models: claude-code, gemini, codex. A Claude model can be
     # pinned via a suffix ("claude-acp:opus"); resolve_acp carries it only as a
     # model preference, and ACPClient applies it over the protocol
@@ -120,6 +124,12 @@ def build_llm_client(
         model=model_pref or None,
         system_prompt=system_prompt,
     )
+
+
+def _cost_cap_backend_error() -> str | None:
+    from condor.llm.budget import unmetered_backend_error
+
+    return unmetered_backend_error()
 
 
 async def agent_key_error(
@@ -145,7 +155,7 @@ async def agent_key_error(
     """
     key = (agent_key or "").strip()
     if not key:
-        return None  # no key = the ACP default, always addressable
+        return _cost_cap_backend_error()  # an empty key selects the ACP default
     if not pydantic_ai.is_pydantic_ai_model(key):
         base = key.split(":", 1)[0]
         if base.split("@", 1)[0] in pydantic_ai.PYDANTIC_AI_PREFIXES:
@@ -156,7 +166,7 @@ async def agent_key_error(
                 pydantic_ai.PYDANTIC_AI_PREFIXES
             )
             return f"unknown model provider '{base}' (known: {', '.join(known)})"
-        return None
+        return _cost_cap_backend_error()
 
     if base_url_override and pydantic_ai.model_prefix(key) == "openrouter":
         # OpenRouter's key is the install's; it only ever goes to OpenRouter.

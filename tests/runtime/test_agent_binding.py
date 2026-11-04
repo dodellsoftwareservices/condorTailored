@@ -112,7 +112,7 @@ def test_resolve_unbound_session_is_the_default_agent(monkeypatch):
     assert bound.is_agent is False
     assert bound.specialist_slug == ""
     assert bound.agent_slug == "condor"
-    assert bound.label == "Condor"
+    assert bound.label == "Griffin"
     assert bound.agent_key == "claude-code"
     assert bound.tools == []
     # The subprocess still learns who it is: that is what scopes its stores.
@@ -170,7 +170,7 @@ def test_a_missing_default_record_still_starts_the_chat(monkeypatch, tmp_path):
 
     bound = binding.resolve(_spec(agent_key="claude-code"))
 
-    assert bound.label == "Condor"
+    assert bound.label == "Griffin"
     assert bound.instructions == ""
     assert bound.is_agent is False
 
@@ -275,7 +275,7 @@ def test_unbound_session_keeps_chat_context(registry, monkeypatch):
 
     assert session.pending_context == "CHAT"
     assert session.agent_slug == ""
-    assert session.label == "Condor"
+    assert session.label == "Griffin"
 
 
 def test_switch_destroys_and_respawns(agents_root, registry, monkeypatch):

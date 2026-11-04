@@ -80,7 +80,7 @@ export const GROUPING_PRESETS: readonly GroupingPreset[] = [
   {
     key: "owner",
     label: "Owner",
-    hint: "Every controller and executor under the agent that made it, Condor included.",
+    hint: "Every controller and executor under the agent that made it, Griffin included.",
     axes: ["agent", "bot"],
   },
   {

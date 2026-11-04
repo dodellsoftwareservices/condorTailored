@@ -26,7 +26,7 @@ export function changeColumnLabel(windowS: number | null): string {
 /** The exact age, for the header's and each cell's tooltip. */
 export function changeWindowTitle(windowS: number | null): string {
   if (windowS == null || !Number.isFinite(windowS) || windowS <= 0) {
-    return "No price history yet — the change column fills in once Condor has a reference snapshot.";
+    return "No price history yet — the change column fills in once Griffin has a reference snapshot.";
   }
   const hours = Math.floor(windowS / HOUR_S);
   const minutes = Math.round((windowS % HOUR_S) / 60);

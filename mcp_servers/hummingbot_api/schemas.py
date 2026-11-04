@@ -27,11 +27,11 @@ class GatewayConfigRequest(BaseModel):
     - connectors: DEX connector configurations (list, get)
     - pools: Liquidity pools (list, add, delete, save) per connector/network
     - wallets: Configured wallets per chain (list only — a wallet is added or
-      removed in the Condor dashboard, never through an agent)
+      removed in the Griffin dashboard, never through an agent)
 
     Networks and connectors are read-only here. Their config holds the RPC every
     transaction is broadcast through and the slippage every swap inherits, so it
-    is changed by the server owner in Condor, never through an agent.
+    is changed by the server owner in Griffin, never through an agent.
 
     Actions:
     - list: List available resources
@@ -163,7 +163,7 @@ class GatewaySwapRequest(BaseModel):
         "price found at execution), 'execute_quote' (execute a quote you already have, by its "
         "quote_id — the price you were shown is the price you get), 'search' (query history), "
         "'get_status' (check tx status), 'resolve' (ask the server to resolve a swap stuck "
-        "SUBMITTED — the server decides and Condor records nothing)"
+        "SUBMITTED — the server decides and Griffin records nothing)"
     )
 
     # Common swap parameters (required for quote/execute)

@@ -8,6 +8,8 @@ import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/inter/wght.css'
 import '@fontsource/jetbrains-mono/latin-400.css'
 import './index.css'
+import './shell.css'
+import './accent.css'
 import App from './App.tsx'
 import { installErrorRecorder } from './lib/diagnostics'
 

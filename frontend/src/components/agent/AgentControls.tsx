@@ -97,7 +97,7 @@ export function StartSessionDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-6 shadow-2xl"
+        className="max-h-[calc(var(--app-viewport-height)*0.9)] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
@@ -238,10 +238,10 @@ export function StartSessionDialog({
               <span>
                 <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text)]">
                   <Power className="h-3.5 w-3.5" />
-                  Resume after Condor restarts
+                  Resume after Griffin restarts
                 </span>
                 <span className="mt-1 block text-[11px] leading-snug text-[var(--color-text-muted)]">
-                  A restart otherwise leaves this loop stopped. On, Condor starts
+                  A restart otherwise leaves this loop stopped. On, Griffin starts
                   it again in a <strong>fresh session</strong>, from the config as
                   it stands then — it never resumes the old session&apos;s journal.
                 </span>

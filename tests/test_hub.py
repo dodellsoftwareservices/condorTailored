@@ -975,7 +975,7 @@ def test_the_hub_cannot_serve_something_that_is_not_a_bundle(fake_hub):
     res = _client().post("/hub/agents/listed/install")
 
     assert res.status_code == 400
-    assert "Condor agent bundle" in res.json()["detail"]
+    assert "Griffin agent bundle" in res.json()["detail"]
 
 
 def test_a_tampered_bundle_never_reaches_the_importer(traveller, fake_hub):

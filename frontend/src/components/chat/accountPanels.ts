@@ -78,7 +78,7 @@ export const PANELS: {
 export const DESK_PARAM = "desk";
 
 /** `/fleet`'s replacement, and the address the rail's fleet lines open. */
-export const EXECUTION_PATH = `/?${PANEL_PARAM}=desk&${DESK_PARAM}=execution`;
+export const EXECUTION_PATH = `/agents?${PANEL_PARAM}=desk&${DESK_PARAM}=execution`;
 
 /**
  * `"portfolio.execution"` → `["portfolio", "execution"]`, or `null` for a value

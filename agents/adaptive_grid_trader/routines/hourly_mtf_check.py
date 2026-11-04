@@ -16,8 +16,8 @@ CATEGORY = "Analysis"
 class Config(BaseModel):
     """Multi-timeframe analysis for the one-way-only adaptive grid trader."""
 
-    trading_pair: str = Field(default="BTC-USDT")
-    connector_name: str = Field(default="binance_perpetual")
+    trading_pair: str = Field(default="BTC-USDC")
+    connector_name: str = Field(default="lighter_perpetual")
     lifetime_hours: float = Field(
         default=8.0,
         description="Expected grid lifetime for range calculation (6-12h typical due to anti-flip rule)",

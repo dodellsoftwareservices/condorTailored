@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useResizeDrag } from "@/hooks/useResizeDrag";
+import { getLayoutScale, WIDE_MEDIA_QUERY } from "@/lib/layout-scale";
 import {
   useWorkspacePane,
   WorkspacePaneContext,
@@ -21,7 +22,7 @@ import { PANE_FRAC_KEY, PANE_FRAC_TUNE_KEY } from "@/lib/sessionState";
  * instead. The chat column's own floor is written as Tailwind's `xl:` in
  * `AgentChatTab`, which is this same breakpoint.
  */
-const WIDE = "(min-width: 1280px)";
+const WIDE = WIDE_MEDIA_QUERY;
 
 /**
  * Opening split, and what a double-click on the handle returns to — one per
@@ -190,7 +191,7 @@ function PaneResizeHandle({
 }) {
   const geom = useRef({ rowRight: 0, avail: 1 });
 
-  const { onMouseDown: startDrag, isDragging } = useResizeDrag({
+  const { onMouseDown: startDrag, onPointerDown: startPointerDrag, isDragging } = useResizeDrag({
     axis: "x",
     value: 0, // `compute` is absolute; the drag has no starting size to grow.
     onChange: (px) => setFrac(px / geom.current.avail),
@@ -201,17 +202,15 @@ function PaneResizeHandle({
     lockUserSelect: true,
   });
 
-  const onMouseDown = (e: React.MouseEvent) => {
-    const handle = e.currentTarget;
+  const measure = (handle: Element) => {
     const chat = handle.previousElementSibling as HTMLElement | null;
     const pane = handle.nextElementSibling as HTMLElement | null;
     if (chat && pane) {
       geom.current = {
-        rowRight: pane.getBoundingClientRect().right,
+        rowRight: pane.getBoundingClientRect().right / getLayoutScale(),
         avail: chat.offsetWidth + pane.offsetWidth,
       };
     }
-    startDrag(e);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -232,7 +231,9 @@ function PaneResizeHandle({
       aria-valuemin={Math.round(MIN_FRAC * 100)}
       aria-valuemax={Math.round(MAX_FRAC * 100)}
       tabIndex={0}
-      onMouseDown={onMouseDown}
+      onMouseDown={(event) => { measure(event.currentTarget); startDrag(event); }}
+      onPointerDown={(event) => { measure(event.currentTarget); startPointerDrag(event); }}
+      style={{ touchAction: "none" }}
       onKeyDown={onKeyDown}
       onDoubleClick={() => setFrac(defaultFrac)}
       title="Drag to resize — double-click to reset"

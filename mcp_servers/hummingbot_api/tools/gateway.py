@@ -60,7 +60,7 @@ async def manage_gateway_config(
             raise ToolError(
                 f"Action '{request.action}' not supported for networks. "
                 "Supported: list, get. A network's config, its RPC endpoint "
-                "included, is changed in the Condor dashboard (Settings → Gateway)."
+                "included, is changed in the Griffin dashboard (Settings → Gateway)."
             )
 
     # ============================================
@@ -180,7 +180,7 @@ async def manage_gateway_config(
             raise ToolError(
                 f"Action '{request.action}' not supported for connectors. "
                 "Supported: list, get. A connector's settings are changed by the "
-                "server owner in Condor, not over MCP."
+                "server owner in Griffin, not over MCP."
             )
 
     # ============================================
@@ -304,7 +304,7 @@ async def manage_gateway_config(
         if request.action != "list":
             raise ToolError(
                 f"Action '{request.action}' not supported for wallets. "
-                f"Supported: list. Wallets are added and removed in the Condor "
+                f"Supported: list. Wallets are added and removed in the Griffin "
                 f"dashboard (Settings -> Gateway) — a private key must never be "
                 f"sent through chat."
             )

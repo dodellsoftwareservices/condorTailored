@@ -241,7 +241,7 @@ function NewChatTab({
           New chat with
         </div>
         <NewChatOption
-          label={condor?.name || "Condor"}
+          label={condor?.name || "Griffin"}
           hint={condor?.description || "General trading assistant"}
           icon={<MessageSquare className="h-3 w-3 shrink-0" />}
           onClick={() => pick("", null)}
@@ -321,7 +321,9 @@ function SessionTab({
   // server belong to the agent panel, one click away on the rail's Agent tile,
   // so neither is restated here. An unbound chat is "Condor" — the same word
   // the rail uses for the same conversation.
-  const agentShort = slot.info.label || slot.info.agent_slug || "Condor";
+  const agentShort = !slot.info.agent_slug || slot.info.agent_slug === CHAT_SLUG
+    ? "Griffin"
+    : slot.info.label || slot.info.agent_slug;
   const TabIcon = slot.info.agent_slug ? Bot : Zap;
   const busy = isStreaming || slot.pending;
   // Strictly `=== false`: a roster from a backend older than `alive` omits the

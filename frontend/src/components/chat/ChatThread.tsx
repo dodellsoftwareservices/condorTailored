@@ -117,7 +117,7 @@ export function ChatThread({
     (slug: string) => {
       const match = roster?.find((a) => a.slug === (slug || CHAT_SLUG));
       if (match) return match.name;
-      if (!slug) return "Condor";
+      if (!slug) return "Griffin";
       if (slug === slot?.info.agent_slug)
         return boundAgent?.name || slot?.info.label || slug;
       return slug;
@@ -338,7 +338,7 @@ export function ChatThread({
               placeholder={
                 permissionRequest
                   ? "Allow or deny the call above first — a message here cancels it"
-                  : `Ask ${(slot.info.agent_slug && slot.info.label) || "Condor"}...`
+                  : `Ask ${(slot.info.agent_slug && slot.info.label) || "Griffin"}...`
               }
               leading={composerLeading}
               // Half-written words survive leaving the page, per conversation.

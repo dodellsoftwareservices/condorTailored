@@ -73,7 +73,7 @@ export function ScopeBreakdowns({
       >
         Not measured here: margin, leverage and account health; live orders and
         fill-level flow; sub-accounts; and fees, which are executor-only and
-        therefore a floor. Condor's records carry none of them, so nothing on
+        therefore a floor. Griffin's records carry none of them, so nothing on
         this screen stands in for them.
       </p>
     </div>

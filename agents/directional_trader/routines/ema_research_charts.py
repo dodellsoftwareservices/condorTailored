@@ -48,10 +48,10 @@ class Config(BaseModel):
     """EMA trend research — sweep EMA combos, score by Sharpe × persistence, show current signal state."""
 
     connector: str = Field(
-        default="binance_perpetual", description="Exchange connector"
+        default="lighter_perpetual", description="Exchange connector"
     )
     pairs: str = Field(
-        default="BTC-USDT,ETH-USDT,SOL-USDT",
+        default="BTC-USDC,ETH-USDC,SOL-USDC",
         description="Comma-separated trading pairs",
     )
     timeframe: str = Field(

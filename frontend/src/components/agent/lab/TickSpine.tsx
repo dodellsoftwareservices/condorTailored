@@ -11,6 +11,7 @@ import {
 import type { AgentActionRow } from "@/lib/agent-attribution";
 import { api } from "@/lib/api";
 import { parseJournal, type TickEntry } from "@/lib/parse-agent";
+import { getLayoutScale, getLayoutViewport, toLayoutRect } from "@/lib/layout-scale";
 
 /**
  * The run's ticks, as its navigation.
@@ -303,19 +304,20 @@ function BeatCard({
   state: BeatState;
   anchor: DOMRect;
 }) {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  const scale = getLayoutScale();
+  const { width: vw, height: vh } = getLayoutViewport(scale);
+  const rect = toLayoutRect(anchor, scale);
   const left = Math.max(
     CARD_EDGE,
     Math.min(
-      anchor.left + anchor.width / 2 - CARD_WIDTH / 2,
+      rect.left + rect.width / 2 - CARD_WIDTH / 2,
       vw - CARD_WIDTH - CARD_EDGE,
     ),
   );
-  const above = vh - anchor.bottom < CARD_MIN_ROOM && anchor.top > vh - anchor.bottom;
+  const above = vh - rect.bottom < CARD_MIN_ROOM && rect.top > vh - rect.bottom;
   const position = above
-    ? { left, bottom: vh - anchor.top + CARD_GAP }
-    : { left, top: anchor.bottom + CARD_GAP };
+    ? { left, bottom: vh - rect.top + CARD_GAP }
+    : { left, top: rect.bottom + CARD_GAP };
   const shown = deeds.slice(0, MAX_DEEDS);
 
   return createPortal(

@@ -31,7 +31,7 @@ pool-info and ranks by fee yield — returning `Pool`, `lp_provider`, `MintPair`
 > calls, then `explore_dex_pools` and an OHLCV read per candidate. That is a
 > dozen tool calls against a loop that budgets **eight for the whole tick**, and
 > it reimplemented a routine that already exists — which the loop forbids in as
-> many words ("do NOT hand-scan GeckoTerminal") and Condor's own routing rule
+> many words ("do NOT hand-scan GeckoTerminal") and Griffin's own routing rule
 > forbids generally (LP-9). What remains below is the judgement the routine
 > cannot make for you.
 

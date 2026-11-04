@@ -462,7 +462,8 @@ def test_the_shipped_library_carries_no_secret_at_all():
 #: in a shipped agent fails here, which is what a regression guard is for.
 LIBRARY_PUBLIC_HOSTS = {
     "fundamental_analyst": {"api.llama.fi", "api.coingecko.com"},
-    "market_making_expert": {"api.hyperliquid.xyz"},
+    # market_making_expert reaches none: its hip3 scanner (the one consumer of
+    # api.hyperliquid.xyz) was removed — the venue does not serve this region.
 }
 
 

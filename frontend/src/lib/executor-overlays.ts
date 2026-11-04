@@ -232,7 +232,7 @@ function computePositionOverlay(executor: ExecutorInfo): ExecutorOverlay {
     lines.push({
       price: activationPrice,
       label: "TS Activation",
-      color: "#f59e0b",
+      color: "#a78bfa",
       style: "dotted",
     });
   }
@@ -243,7 +243,7 @@ function computePositionOverlay(executor: ExecutorInfo): ExecutorOverlay {
     lines.push({
       price: breakEven,
       label: "Break-even",
-      color: "#eab308",
+      color: "#d779a5",
       style: "dotted",
     });
   }

@@ -237,7 +237,7 @@ describe("a conversation run", () => {
     });
     await render(CHAT);
     expect(getConversationDeployments).toHaveBeenCalledWith("7f3a");
-    expect(container.textContent).toContain("before Condor recorded");
+    expect(container.textContent).toContain("before Griffin recorded");
     expect(container.querySelector("table")).toBeNull();
   });
 
@@ -260,7 +260,7 @@ describe("a conversation run", () => {
       predates_ledger: false,
     });
     await render(CHAT);
-    expect(container.textContent).not.toContain("before Condor recorded");
+    expect(container.textContent).not.toContain("before Griffin recorded");
     expect(container.querySelector("table")).not.toBeNull();
     expect(container.textContent).toContain("pmm_1");
     expect(

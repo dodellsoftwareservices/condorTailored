@@ -61,7 +61,7 @@ async function at(url: string) {
       <MemoryRouter initialEntries={[url]}>
         <Routes>
           <Route
-            path="/"
+            path="*"
             element={
               <>
                 <Agents />

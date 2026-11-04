@@ -15,8 +15,8 @@ CATEGORY = "Analysis"
 class Config(BaseModel):
     """Compute 7-day baseline stats: ATR, range, trend for a perpetual pair."""
 
-    trading_pair: str = Field(default="BTC-USDT")
-    connector_name: str = Field(default="binance_perpetual")
+    trading_pair: str = Field(default="BTC-USDC")
+    connector_name: str = Field(default="lighter_perpetual")
     atr_period: int = Field(default=14, description="Candles for ATR calculation")
 
 

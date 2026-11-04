@@ -74,6 +74,18 @@ CONDOR_COMMON = {
     "manage_skill",
     "trading_agent_journal_read",
     "trading_agent_journal_write",
+    "sim_market_snapshot",
+    "sim_submit_order",
+    "sim_cancel_order",
+    "sim_list_orders",
+    "sim_portfolio",
+    "sim_cost_report",
+    "sim_fut_snapshot",
+    "sim_fut_submit_order",
+    "sim_fut_cancel_order",
+    "sim_fut_list_orders",
+    "sim_fut_portfolio",
+    "sim_fut_cost_report",
 }
 CONDOR_ORCHESTRATION = {
     "manage_agents",

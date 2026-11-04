@@ -560,8 +560,8 @@ function ConfigCard({
           onClick={() => restartMutation.mutate(!resumes)}
           title={
             resumes
-              ? "Condor restarts this loop in a fresh session after it restarts. Click to turn off."
-              : "This loop stays stopped after Condor restarts. Click to have it resume."
+              ? "Griffin restarts this loop in a fresh session after it restarts. Click to turn off."
+              : "This loop stays stopped after Griffin restarts. Click to have it resume."
           }
           className={`ml-auto flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors hover:border-[var(--color-primary)]/50 hover:text-[var(--color-primary)] disabled:opacity-50 ${
             resumes

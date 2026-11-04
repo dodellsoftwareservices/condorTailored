@@ -147,11 +147,11 @@ async def configure_server(
     if _credentials_were_injected():
         return (
             "Changing the server connection is disabled for this session.\n\n"
-            "This MCP server was started by Condor and holds the API credentials "
+            "This MCP server was started by Griffin and holds the API credentials "
             "of the server's owner, so it cannot be repointed from a chat.\n\n"
             f"  Name: {settings.server_name}\n"
             f"  URL: {settings.api_url}\n\n"
-            "Add, edit or switch servers in the Condor dashboard: "
+            "Add, edit or switch servers in the Griffin dashboard: "
             "Settings → Servers.\n"
         )
 
@@ -818,7 +818,7 @@ async def create_position_executor(
       stop_loss=0.02, take_profit=0.03)
 
     For sizing from a stop distance and setting the risk/reward, read the
-    'directional_position' skill if the Condor skills library is available.
+    'directional_position' skill if the Griffin skills library is available.
     """
     client = await hummingbot_client.get_client()
     result = await executor_create.create_position_executor(
@@ -951,7 +951,7 @@ async def create_grid_executor(
       take_profit=0.002, open_order_type=3, take_profit_order_type=3, leverage=1)
 
     For confirming the market is ranging and choosing the prices and level count, read
-    the 'run_a_grid' skill if the Condor skills library is available.
+    the 'run_a_grid' skill if the Griffin skills library is available.
     """
     client = await hummingbot_client.get_client()
     result = await executor_create.create_grid_executor(
@@ -1054,7 +1054,7 @@ async def create_dca_executor(
       [50000, 48000, 46000], take_profit=0.03, stop_loss=0.05)
 
     For spacing the levels and distributing size across them, read the
-    'dca_into_position' skill if the Condor skills library is available.
+    'dca_into_position' skill if the Griffin skills library is available.
     """
     client = await hummingbot_client.get_client()
     result = await executor_create.create_dca_executor(
@@ -1280,7 +1280,7 @@ async def create_lp_executor(
       lower_limit_price=p*0.72, upper_limit_price=p*1.1)
 
     For choosing the pool, sizing the range and picking the side, read the
-    'open_lp_position' skill if the Condor skills library is available.
+    'open_lp_position' skill if the Griffin skills library is available.
     """
     client = await hummingbot_client.get_client()
     result = await executor_create.create_lp_executor(
@@ -1397,7 +1397,7 @@ async def stop_executor(
     was left open on-chain. A 404 means the id is unknown to the API database. A
     terminated executor's on-chain position CANNOT be closed by stopping it; start from
     `list_orphaned_positions`, and for the recovery procedure read the
-    'recover_orphaned_position' skill if the Condor skills library is available.
+    'recover_orphaned_position' skill if the Griffin skills library is available.
 
     Args:
         executor_id: The executor to stop.
@@ -1433,7 +1433,7 @@ async def list_orphaned_positions() -> str:
     the API database. Then call `resolve_orphaned_position`.
 
     For the full cross-server procedure, read the 'recover_orphaned_position' skill if
-    the Condor skills library is available.
+    the Griffin skills library is available.
     """
     client = await hummingbot_client.get_client()
     result = await executors_tools.list_orphaned_positions(client)
@@ -1666,12 +1666,12 @@ async def manage_gateway_config(
     - chains: every blockchain Gateway knows
     - networks: list/get only, ids in 'chain-network' form ('solana-mainnet-beta').
       The RPC endpoint and the rest of a network's config are changed by the user
-      in the Condor dashboard (Settings → Gateway), never by an agent.
+      in the Griffin dashboard (Settings → Gateway), never by an agent.
     - tokens: the per-network symbol/address/decimals mapping (list, add, delete, save)
     - connectors: list/get only. A connector's settings (slippage and the like) are
-      changed by the server owner in Condor, never by an agent.
+      changed by the server owner in Griffin, never by an agent.
     - pools: the named pool registry (list, add, delete, save)
-    - wallets: list only. Add or remove wallets in the Condor dashboard
+    - wallets: list only. Add or remove wallets in the Griffin dashboard
       (Settings → Gateway) — a private key must never be sent through chat.
 
     Args:
@@ -1846,7 +1846,7 @@ async def manage_clmm(
     monitoring, rebalancing and bounded close retries. Use this tool when no executor can do
     that for you — above all to RECOVER AN ORPHANED POSITION, which is closed by address here
     and then marked with `resolve_orphaned_position`. For that procedure read the
-    'recover_orphaned_position' skill if the Condor skills library is available.
+    'recover_orphaned_position' skill if the Griffin skills library is available.
 
     Actions:
     - position_info → your positions in a pool with amounts, range, and uncollected fees

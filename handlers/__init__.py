@@ -11,7 +11,7 @@ def is_gateway_network(connector_name: str) -> bool:
     Check if a connector name is a Gateway network (DEX) vs a CEX connector.
 
     Gateway networks: solana-mainnet-beta, ethereum-mainnet, base, arbitrum, etc.
-    CEX connectors: binance, binance_perpetual, hyperliquid, kucoin, etc.
+    CEX connectors: binance, binance_perpetual, kraken, kucoin, etc.
     """
     if not connector_name:
         return False

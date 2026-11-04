@@ -25,10 +25,11 @@ import { useOrderConfig } from "@/components/executor/order-config";
 import { useVenues } from "@/components/market/useVenues";
 import { TradeBottomPane } from "@/components/trade/TradeBottomPane";
 import { TradeChart, type ChartPriceAxis } from "@/components/trade/TradeChart";
+import { WorkspaceViewSwitch, type WorkspaceView } from "@/components/trade/WorkspaceViewSwitch";
+import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { useDexUpstream } from "@/hooks/useDexUpstream";
 import { useMainControllerData } from "@/hooks/useMainControllerData";
 import { usePairBalances } from "@/hooks/usePairBalances";
-import { useResizeDrag } from "@/hooks/useResizeDrag";
 import { useServer } from "@/hooks/useServer";
 import {
   OWNER_ONLY_HINT,
@@ -102,24 +103,7 @@ export function DexPool() {
     }
   }, [depthCollapsed]);
 
-  const { onMouseDown: startHDrag } = useResizeDrag({
-    axis: "x",
-    value: rightPanelWidth,
-    onChange: setRightPanelWidth,
-    min: 260,
-    max: 500,
-    direction: "inverted",
-    cursor: "col-resize",
-  });
-  const { onMouseDown: startVDrag } = useResizeDrag({
-    axis: "y",
-    value: bottomPaneHeight,
-    onChange: setBottomPaneHeight,
-    min: 100,
-    max: 500,
-    direction: "inverted",
-    cursor: "row-resize",
-  });
+  const [mobileView, setMobileView] = useState<WorkspaceView>("chart");
 
   const {
     data: pool,
@@ -345,7 +329,7 @@ export function DexPool() {
 
   if (poolLoading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center text-sm text-[var(--color-text-muted)]">
+      <div className="flex min-h-[calc(var(--app-viewport-height)*0.6)] items-center justify-center text-sm text-[var(--color-text-muted)]">
         Loading pool…
       </div>
     );
@@ -357,11 +341,11 @@ export function DexPool() {
     // in a few seconds is the fix — not walking back to the browser.
     const throttled = upstream.limited || /rate limit/i.test(poolError?.message ?? "");
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3">
+      <div className="flex min-h-[calc(var(--app-viewport-height)*0.6)] flex-col items-center justify-center gap-3">
         <p className="max-w-md text-center text-sm text-[var(--color-text-muted)]">
           {throttled
             ? (poolError?.message ??
-              "GeckoTerminal is rate limiting Condor, so this pool could not be read.")
+              "GeckoTerminal is rate limiting Griffin, so this pool could not be read.")
             : `No pool at ${address.slice(0, 8)}… on ${network}.`}
         </p>
         <div className="flex gap-2">
@@ -391,7 +375,7 @@ export function DexPool() {
   const pairLabel = poolLabel(pool);
 
   return (
-    <div className="-m-6 flex h-[calc(100%+3rem)] flex-col">
+    <div className="trading-workspace" data-mobile-view={mobileView}>
       {/* Nothing on this page fails loudly when the budget is spent — the chart
           just stops moving and the stats freeze — so it is said here instead. */}
       <UpstreamNotice state={upstream} className="shrink-0 border-b" />
@@ -492,7 +476,7 @@ export function DexPool() {
       </div>
 
       {/* Interval / lookback */}
-      <div className="flex shrink-0 items-center gap-4 border-b border-[var(--color-border)] px-3 py-1.5">
+      <div className="trade-time-controls flex shrink-0 items-center gap-4 border-b border-[var(--color-border)] px-3 py-1.5">
         <div className="flex items-center gap-1">
           <span className="text-[11px] text-[var(--color-text-muted)]">Interval</span>
           {DEX_INTERVALS.map((iv) => (
@@ -528,8 +512,10 @@ export function DexPool() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+      <WorkspaceViewSwitch value={mobileView} onChange={setMobileView} />
+
+      <div className="trade-main-area">
+        <div className="trade-chart-column flex min-w-0 flex-1 flex-col">
           {/* What you already hold here, above the chart that shows where it sits */}
           <LpPositionBar
             executors={executors}
@@ -538,7 +524,7 @@ export function DexPool() {
             onSelect={(id) => setSelectedExecutorId((prev) => (prev === id ? null : id))}
           />
 
-          <div className="flex min-h-0 flex-1">
+          <div className="trade-chart-surface flex min-h-0 flex-1">
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
             <TradeChart
               key={`${network}:${pool.address}:${interval}`}
@@ -604,14 +590,9 @@ export function DexPool() {
               ))}
           </div>
 
-          <div
-            className="group/hdrag relative h-1.5 shrink-0 cursor-row-resize border-y border-[var(--color-border)] bg-[var(--color-bg)] transition-colors hover:bg-[var(--color-primary)]/10 active:bg-[var(--color-primary)]/20"
-            onMouseDown={startVDrag}
-          >
-            <div className="absolute inset-x-0 top-1/2 mx-auto h-px w-12 -translate-y-1/2 rounded bg-amber-400/60 transition-colors group-hover/hdrag:bg-amber-400" />
-          </div>
+          <ResizeHandle axis="y" value={bottomPaneHeight} onChange={setBottomPaneHeight} min={100} max={500} reset={200} label="Resize pool activity" />
 
-          <div style={{ height: bottomPaneHeight }} className="shrink-0 overflow-hidden">
+          <div style={{ height: bottomPaneHeight }} className="trade-activity-panel shrink-0 overflow-hidden">
             <TradeBottomPane
               executors={executors}
               positions={positions}
@@ -627,15 +608,10 @@ export function DexPool() {
           </div>
         </div>
 
-        <div
-          className="group/vdrag relative w-1.5 shrink-0 cursor-col-resize border-x border-[var(--color-border)] bg-[var(--color-bg)] transition-colors hover:bg-[var(--color-primary)]/10 active:bg-[var(--color-primary)]/20"
-          onMouseDown={startHDrag}
-        >
-          <div className="absolute inset-y-0 left-1/2 my-auto h-12 w-px -translate-x-1/2 rounded bg-amber-400/60 transition-colors group-hover/vdrag:bg-amber-400" />
-        </div>
+        <ResizeHandle axis="x" value={rightPanelWidth} onChange={setRightPanelWidth} min={260} max={500} reset={288} label="Resize pool order panel" />
 
         <div
-          className="flex shrink-0 flex-col border-l border-[var(--color-border)]"
+          className="trade-config-panel flex shrink-0 flex-col border-l border-[var(--color-border)]"
           style={{ width: rightPanelWidth }}
         >
           <div className="flex border-b border-[var(--color-border)]">
@@ -669,7 +645,7 @@ export function DexPool() {
             <p className="border-b border-[var(--color-border)] px-3 py-2 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
               No liquidity position available here —{" "}
               {caps.supportsLp
-                ? `${pool.dex_id} is not a concentrated-liquidity venue Condor can add to.`
+                ? `${pool.dex_id} is not a concentrated-liquidity venue Griffin can add to.`
                 : `${network} takes no CLMM position.`}{" "}
               Market swaps still work.
             </p>

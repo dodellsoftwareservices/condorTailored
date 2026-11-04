@@ -29,7 +29,7 @@ declare global {
 }
 
 const AGENTS: AgentSummary[] = [
-  { slug: "condor", name: "Condor", description: "General" } as AgentSummary,
+  { slug: "condor", name: "Griffin", description: "General" } as AgentSummary,
   { slug: "brigado", name: "Brigado", description: "MM" } as AgentSummary,
 ];
 

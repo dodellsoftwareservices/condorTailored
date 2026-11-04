@@ -269,6 +269,19 @@ def test_normalize_base_url_blocks_metadata_endpoints():
         normalize_base_url("http://metadata.google.internal/v1")
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:password@api.example/v1",
+        "https://api.example/v1?next=http://169.254.169.254",
+        "https://api.example/v1#fragment",
+    ],
+)
+def test_normalize_base_url_rejects_embedded_credentials_and_suffixes(url):
+    with pytest.raises(ValueError, match="not a valid http"):
+        normalize_base_url(url)
+
+
 def test_normalize_base_url_allows_local_servers_by_default():
     # Local model servers are the most common use of this feature
     assert normalize_base_url("http://localhost:8000/v1") == "http://localhost:8000/v1"
@@ -588,6 +601,14 @@ def test_fetch_models_unreachable():
     asyncio.run(_with_mock_provider(scenario))
 
 
+def test_fetch_models_rechecks_saved_base_url_before_opening_socket():
+    async def scenario():
+        with pytest.raises(CustomProviderError, match="link-local"):
+            await fetch_models("http://169.254.169.254/v1")
+
+    asyncio.run(scenario())
+
+
 def test_fetch_models_reports_when_only_non_chat_models_exist():
     async def models_handler(request: web.Request) -> web.Response:
         return web.json_response(
@@ -612,5 +633,72 @@ def test_fetch_models_reports_when_only_non_chat_models_exist():
                 await fetch_models(f"http://127.0.0.1:{port}/v1")
         finally:
             await runner.cleanup()
+
+    asyncio.run(scenario())
+
+
+def test_fetch_models_does_not_follow_redirects_to_another_resource():
+    async def scenario():
+        visited = 0
+
+        async def redirect(_request):
+            raise web.HTTPFound("/internal")
+
+        async def internal(_request):
+            nonlocal visited
+            visited += 1
+            return web.json_response({"data": [{"id": "internal-model"}]})
+
+        app = web.Application()
+        app.router.add_get("/v1/models", redirect)
+        app.router.add_get("/internal", internal)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            with pytest.raises(CustomProviderError, match="redirected"):
+                await fetch_models(f"http://127.0.0.1:{port}/v1")
+            assert visited == 0
+        finally:
+            await runner.cleanup()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("address", "strict"),
+    [("169.254.169.254", False), ("127.0.0.1", True)],
+)
+def test_fetch_models_checks_dns_answer_used_for_connection(
+    monkeypatch, address, strict
+):
+    from condor.llm import custom_models
+
+    if strict:
+        monkeypatch.setenv("CUSTOM_LLM_BLOCK_PRIVATE_URLS", "true")
+
+    class FakeResolver:
+        async def resolve(self, host, port=0, family=0):
+            return [
+                {
+                    "host": address,
+                    "hostname": host,
+                    "port": port,
+                    "family": family,
+                    "proto": 0,
+                    "flags": 0,
+                }
+            ]
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(custom_models, "DefaultResolver", FakeResolver)
+
+    async def scenario():
+        with pytest.raises(CustomProviderError, match="could not reach"):
+            await fetch_models("http://rebind.example/v1")
 
     asyncio.run(scenario())

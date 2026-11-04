@@ -58,7 +58,7 @@ class Config(BaseModel):
     """Unified MM dashboard: portfolio inventory, bot positions, PnL, and errors."""
 
     connector_name: str = Field(
-        default="binance_perpetual",
+        default="lighter_perpetual",
         description="Focus connector for portfolio (empty=all)",
     )
     trading_pair: str = Field(

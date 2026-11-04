@@ -15,9 +15,9 @@ CATEGORY = "Analysis"
 class Config(BaseModel):
     """Read the exact-pair trading state without changing exchange state."""
 
-    connector_name: str = Field(default="binance_perpetual")
+    connector_name: str = Field(default="lighter_perpetual")
     account_name: str = Field(default="master_account")
-    trading_pair: str = Field(default="SOL-USDT")
+    trading_pair: str = Field(default="SOL-USDC")
     leverage: Any = Field(default=None)
 
 

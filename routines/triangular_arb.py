@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 
 from condor.venues import data_connector_for, is_test_venue
 from config_manager import get_client
+from routines.base import RoutineResult
 
 logger = logging.getLogger(__name__)
 
@@ -285,12 +286,16 @@ async def _price_cycle(
 # ---------------------------------------------------------------------------
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     """Scan one venue for fee-adjusted triangular arbitrage cycles."""
     chat_id = context._chat_id if hasattr(context, "_chat_id") else None
     client = await get_client(chat_id, context=context)
     if not client:
-        return "No server available. Configure servers in /config."
+        return RoutineResult(
+            text="No server available. Configure servers in /config.", failed=True
+        )
 
     requested = config.connector.strip()
     # The API serves no ticker feed for paper/testnet names (their prices are not
@@ -309,7 +314,9 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
                 "\n\n`" + connector + "` is a paper/testnet name with no mainnet "
                 "venue to read instead; scan the mainnet connector."
             )
-        return f"Could not read markets for `{connector}`: {e}{hint}"
+        return RoutineResult(
+            text=f"Could not read markets for `{connector}`: {e}{hint}", failed=True
+        )
     if not pairs:
         return f"`{connector}` returned no markets."
 

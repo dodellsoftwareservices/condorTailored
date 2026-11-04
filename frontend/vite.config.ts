@@ -15,6 +15,7 @@ export default defineConfig({
     },
   },
   test: {
+    setupFiles: ["./src/test/native-dialog.ts"],
     // Pure helpers are the common case — no DOM, no React — so `node` stays the
     // default and keeps the run fast. A component test that needs a DOM opts in
     // per file with a `@vitest-environment jsdom` docblock (see
@@ -38,7 +39,10 @@ export default defineConfig({
     // this folder rather than inside it; the dev server refuses that by default.
     fs: { allow: [".."] },
     proxy: {
-      "/api": "http://localhost:8088",
+      "/api": {
+        target: "http://localhost:8088",
+        ws: true,
+      },
       "/ws": {
         target: "ws://localhost:8088",
         ws: true,

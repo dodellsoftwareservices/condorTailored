@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
 
 from config_manager import get_client
+from routines.base import RoutineResult
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +17,9 @@ CATEGORY = "Analysis"
 class Config(BaseModel):
     """Cross-timeframe mean reversion research: return stats, RSI, Bollinger, Z-score, Hurst, autocorrelation."""
 
-    trading_pair: str = Field(default="SOL-USDT", description="Trading pair to analyze")
+    trading_pair: str = Field(default="SOL-USDC", description="Trading pair to analyze")
     connector: str = Field(
-        default="binance_perpetual", description="Exchange connector"
+        default="lighter_perpetual", description="Exchange connector"
     )
     timeframes: str = Field(
         default="1m,5m,15m,1h,4h,1d", description="Comma-separated timeframes"
@@ -215,10 +216,12 @@ _TF_ORDER = [
 ]
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     client = await get_client(context._chat_id, context=context)
     if not client:
-        return "No server available"
+        return RoutineResult(text="No server available", failed=True)
 
     timeframes = [tf.strip() for tf in config.timeframes.split(",") if tf.strip()]
     sem = asyncio.Semaphore(4)
@@ -257,7 +260,10 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
             logger.warning(f"Analysis failed for {tf}: {e}")
 
     if not analyses:
-        return f"No data available for {config.trading_pair} on {config.connector}"
+        return RoutineResult(
+            text=f"No data available for {config.trading_pair} on {config.connector}",
+            failed=True,
+        )
 
     ranked = sorted(analyses, key=lambda x: x["mr_score"], reverse=True)
     best = ranked[0]
@@ -280,7 +286,6 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
         pass
 
     from condor.reports import ReportBuilder
-    from routines.base import RoutineResult
 
     builder = ReportBuilder(f"Mean Reversion Research — {config.trading_pair}")
     builder.source("routine", "mean_reversion_research").tags(

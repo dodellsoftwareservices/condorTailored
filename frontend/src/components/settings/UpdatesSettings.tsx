@@ -211,7 +211,7 @@ export function UpdatesSettings() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
-          Updating the API recreates its containers. Updating Condor does not
+          Updating the API recreates its containers. Updating Griffin does not
           restart it: the new code lands on disk and you relaunch when it suits
           you.
         </p>
@@ -608,7 +608,7 @@ function FinishedView({
         <div className="flex items-start gap-2 rounded-lg border border-[var(--color-yellow)]/40 bg-[var(--color-yellow)]/10 p-3 text-xs leading-relaxed text-[var(--color-text)]">
           <RotateCw className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-yellow)]" />
           <span>
-            Condor is still running{" "}
+            Griffin is still running{" "}
             <span className="font-mono">{relaunch.from_commit}</span>. It is
             restarting to come up on{" "}
             <span className="font-mono">{relaunch.target_commit}</span> — see the

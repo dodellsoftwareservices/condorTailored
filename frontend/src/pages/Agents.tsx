@@ -1,7 +1,7 @@
 import { AgentChatTab } from "@/pages/tabs/AgentChatTab";
 
 /**
- * The home, which is the conversation (FEAT-077).
+ * The agent conversation workspace, now at `/agents`.
  *
  * It was briefly two views of one route: FEAT-104 hung a fleet overview off
  * `/?view=fleet` and then made it what a bare `/` means. Both halves of that
@@ -14,7 +14,8 @@ import { AgentChatTab } from "@/pages/tabs/AgentChatTab";
  * route, and it redirects into the panel, so a bookmark of either spelling
  * lands on the home with the fleet open.
  *
- * Owns the full viewport and scrolls its own transcript, so the shell drops
+ * Portfolio metrics live on the home dashboard. This workspace owns the
+ * full viewport and scrolls its own transcript, so the shell drops
  * `main`'s padding for this route (see `AppShell`).
  */
 export function Agents() {

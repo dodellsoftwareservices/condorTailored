@@ -34,6 +34,14 @@ declare global {
 let container: HTMLDivElement;
 let root: Root;
 let requested: string[] = [];
+let configResponse: () => Promise<Response>;
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 /** Enough connectors that a per-connector prefetch is unmistakable in the count. */
 const SPOT = ["binance", "kucoin", "okx", "gate_io", "kraken", "mexc"];
@@ -62,13 +70,13 @@ function respond(path: string): unknown {
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   requested = [];
+  configResponse = async () => jsonResponse(CONFIG_MAP);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (path: string) => {
       requested.push(path);
-      return new Response(JSON.stringify(respond(path)), {
-        headers: { "Content-Type": "application/json" },
-      });
+      if (path.includes("/config-map")) return configResponse();
+      return jsonResponse(respond(path));
     }),
   );
   container = document.createElement("div");
@@ -185,5 +193,55 @@ describe("ApiKeysSettings config-map traffic", () => {
 
     expect(container.textContent).toContain("api_secret");
     expect(configMapCalls()).toEqual(["kraken"]);
+  });
+
+  it("shows a schema load failure and retries without offering to save empty credentials", async () => {
+    configResponse = async () => jsonResponse({ detail: "The trading API is unreachable" }, 502);
+    await openSpotGrid();
+    await act(async () => button("kraken").click());
+    await flush();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Could not load configuration fields for kraken",
+    );
+    expect(container.textContent).toContain("The trading API is unreachable");
+    expect(container.textContent).not.toContain("does not require configuration fields");
+    expect(container.textContent).not.toContain("Add Credential");
+
+    configResponse = async () => jsonResponse(CONFIG_MAP);
+    await act(async () => button("Retry loading fields").click());
+    await flush();
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelectorAll("input")).toHaveLength(2);
+    expect(button("Add Credential").disabled).toBe(false);
+    expect(configMapCalls()).toEqual(["kraken", "kraken"]);
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("keeps credential submission unavailable while configuration fields are loading", async () => {
+    let finish!: (response: Response) => void;
+    configResponse = () => new Promise((resolve) => { finish = resolve; });
+    await openSpotGrid();
+    await act(async () => button("kraken").click());
+    await flush();
+
+    expect(container.textContent).toContain("Loading fields...");
+    expect(container.textContent).not.toContain("Add Credential");
+    expect(container.textContent).not.toContain("does not require configuration fields");
+
+    await act(async () => finish(jsonResponse(CONFIG_MAP)));
+    await flush();
+    expect(container.querySelectorAll("input")).toHaveLength(2);
+  });
+
+  it("allows a connector whose configuration map successfully loads with no fields", async () => {
+    configResponse = async () => jsonResponse({ config_map: {} });
+    await openSpotGrid();
+    await act(async () => button("kraken").click());
+    await flush();
+
+    expect(container.textContent).toContain("This connector does not require configuration fields.");
+    expect(button("Add Credential").disabled).toBe(false);
   });
 });

@@ -49,7 +49,7 @@ def test_worker_instructions_own_the_authoring_and_close_delegation(
 ):
     text = _instructions(settings_obj, monkeypatch, slug="condor", worker=True)
 
-    assert text.startswith("You are a BACKGROUND WORKER instance of Condor")
+    assert text.startswith("You are a BACKGROUND WORKER instance of Griffin")
     # The reason it was started: it authors, it does not route the work onward.
     assert "ROUTINE AUTHORING IS YOURS" in text
     assert "routine_cookbook" in text
@@ -67,7 +67,7 @@ def test_worker_keeps_the_coordinator_routing_below_its_own_framing(
 ):
     """It is still Condor: same skills/agents priority, one branch swapped."""
     text = _instructions(settings_obj, monkeypatch, slug="condor", worker=True)
-    assert "Condor exposes reusable **skills**" in text
+    assert "Griffin exposes reusable **skills**" in text
     assert "ROUTING RULE" in text
     assert 'manage_skill(action="list")' in text
 
@@ -75,7 +75,7 @@ def test_worker_keeps_the_coordinator_routing_below_its_own_framing(
 def test_chat_instructions_are_untouched_by_the_flag(settings_obj, monkeypatch):
     """Same record, flag off — the interactive chat text must not drift."""
     chat = _instructions(settings_obj, monkeypatch, slug="condor", worker=False)
-    assert chat.startswith("Condor exposes reusable **skills**")
+    assert chat.startswith("Griffin exposes reusable **skills**")
     assert "BACKGROUND WORKER" not in chat
     assert "ROUTINE AUTHORING IS YOURS" not in chat
 
@@ -93,8 +93,8 @@ def test_a_specialist_is_never_re_framed_as_a_condor_worker(
     assert identity_header("backpack_mm", "Backpack MM") in text
     # Its own background seat (FEAT-041), not Condor's `_worker_base`.
     assert text.startswith("You are a BACKGROUND WORKER instance of Backpack MM")
-    assert "instance of Condor" not in text
-    assert "Condor exposes reusable **skills**" not in text
+    assert "instance of Griffin" not in text
+    assert "Griffin exposes reusable **skills**" not in text
 
 
 # ── FEAT-041: an agent can start a background copy of itself ──

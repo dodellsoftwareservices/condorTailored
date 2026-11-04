@@ -46,7 +46,7 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "send_notification": "Send the user a Telegram message",
     "manage_routines": "List, run, schedule and edit routines",
     "manage_agent_controllers": "Own controller source and push it to a server",
-    "run_code": "Run a Python snippet inside Condor",
+    "run_code": "Run a Python snippet inside Griffin",
     "manage_servers": "List Hummingbot API servers and say where this seat points",
     "manage_memory": "Read and write what this agent remembers about the user",
     "manage_skill": "Read, write and refine playbooks",
@@ -56,6 +56,18 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "manage_loops": "Create and edit loops — the playbooks an agent runs each tick",
     "control_agent": "Start, stop, pause and resume live agent instances",
     "get_available_models": "List the models an agent can run on",
+    "sim_market_snapshot": "Live Kraken prices, depth and fee costs for the simulated exchange",
+    "sim_submit_order": "Place a simulated spot order on live Kraken prices (no real money)",
+    "sim_cancel_order": "Cancel an open simulated limit order",
+    "sim_list_orders": "List simulated open and recent orders",
+    "sim_portfolio": "Simulated account equity, cash and positions",
+    "sim_cost_report": "Simulated fees, slippage and running costs",
+    "sim_fut_snapshot": "Live Kraken perpetual prices, depth, funding and costs (simulated futures)",
+    "sim_fut_submit_order": "Place a simulated perpetual order, long or short, on live Kraken prices (no real money)",
+    "sim_fut_cancel_order": "Cancel an open simulated futures limit order",
+    "sim_fut_list_orders": "List simulated futures open and recent orders",
+    "sim_fut_portfolio": "Simulated futures equity, positions, leverage and funding",
+    "sim_fut_cost_report": "Simulated futures fees, slippage, funding and running costs",
 }
 
 #: Everything a session needs whoever is sitting in it: its own memory and
@@ -75,6 +87,18 @@ COMMON_TOOLS: tuple[str, ...] = (
     "manage_skill",
     "trading_agent_journal_read",
     "trading_agent_journal_write",
+    "sim_market_snapshot",
+    "sim_submit_order",
+    "sim_cancel_order",
+    "sim_list_orders",
+    "sim_portfolio",
+    "sim_cost_report",
+    "sim_fut_snapshot",
+    "sim_fut_submit_order",
+    "sim_fut_cancel_order",
+    "sim_fut_list_orders",
+    "sim_fut_portfolio",
+    "sim_fut_cost_report",
 )
 
 #: Orchestration: who exists, what loops they own, and which instances are

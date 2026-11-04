@@ -205,7 +205,7 @@ class StrategyStore:
         if slugify(name) in RESERVED_STRATEGY_SLUGS:
             raise ValueError(
                 f"'{name}' is reserved: {', '.join(sorted(RESERVED_STRATEGY_SLUGS))} "
-                "name Condor's own non-loop runs. Pick another name."
+                "name Griffin's own non-loop runs. Pick another name."
             )
         # ``_save`` overwrites unconditionally, so without this a second create
         # whose name slugifies the same replaces the playbook — and the route

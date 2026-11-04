@@ -75,13 +75,13 @@ major report boundaries and `markdown()` for narrative and subsection headings.
 `section()` preserves insertion order because section boundaries are meaningful.
 Use it instead of styling a Markdown heading as a page-level separator. Reports
 render Markdown tables with bordered cells and synchronize native controls and
-Plotly figures with the Condor dark or light report theme.
+Plotly figures with the Griffin dark or light report theme.
 
 ### Interactive offline dashboards
 
 Reports can embed named datasets and data-bound components. The generated HTML
 contains its data, report runtime, and Plotly bundle, so it works both in the
-Condor dashboard and as an offline downloaded file.
+Griffin dashboard and as an offline downloaded file.
 
 ```python
 builder = ReportBuilder("Market Dashboard")
@@ -174,7 +174,7 @@ chart selection, table search, sorting, or paging pauses refresh so the user's
 interaction is not discarded. Resume loads the newest report immediately. Call
 `auto_refresh(None)` before the final update to leave a stopped, fixed snapshot.
 Downloaded reports remain fixed offline snapshots. In-place updates count as
-recent activity when Condor applies its report-retention limit.
+recent activity when Griffin applies its report-retention limit.
 
 For cross-filtering, charts and target components must reference the same named
 dataset. Keep embedded datasets below roughly 10,000 rows for responsive reports.

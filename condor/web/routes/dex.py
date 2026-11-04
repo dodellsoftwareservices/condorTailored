@@ -586,7 +586,7 @@ async def get_pool(
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "GeckoTerminal is rate limiting Condor, so this pool could "
+                    "GeckoTerminal is rate limiting Griffin, so this pool could "
                     f"not be read. Try again in about {wait:.0f}s."
                 ),
             )
@@ -660,7 +660,7 @@ async def get_pool_bins(
     named = (connector or "").strip().lower()
     if not named or not can_fetch_liquidity(named, network):
         return _no_bins(
-            f"Condor reads liquidity bins from Gateway CLMM, which does not cover "
+            f"Griffin reads liquidity bins from Gateway CLMM, which does not cover "
             f"{named or 'this venue'} on {network}."
         )
     # The Gateway connector the gated dex id names (``meteora`` → ``meteora``).

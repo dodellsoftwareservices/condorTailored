@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Activity, ChartNoAxesCombined, Loader2, RefreshCw } from "lucide-react";
 
 import { useCandleStore } from "@/hooks/useCandleStore";
 import { useRates } from "@/hooks/useRates";
-import { api, type ConsolidatedPosition } from "@/lib/api";
+import { api, type CandleData, type ConsolidatedPosition } from "@/lib/api";
 import { candleChannelKey, candleStore } from "@/lib/candle-store";
 import type { ChartLineSlot, ExtraLine, PickSlot } from "@/components/executor/types";
 import { createOverlayTooltipView, getExecutorColor, type ExecutorOverlay } from "@/lib/executor-overlays";
 import { getThemeColors, pnlHexColor } from "@/lib/theme-colors";
-import { roundToPricePrecision } from "@/lib/formatters";
+import { formatConnectorName, formatPriceSig, roundToPricePrecision } from "@/lib/formatters";
+import { getLayoutScale, getLayoutViewport, toLayoutRect } from "@/lib/layout-scale";
+import { chartCandles, chartFeedError, loadChartPreferences, movingAverage, saveChartPreferences, type ChartPreferences } from "@/lib/chart-analysis";
+import { ChartToolbar } from "./ChartToolbar";
 import { createDragHitPrimitive, type DragTarget } from "./priceLineDrag";
 import { usePriceLineDrag } from "./usePriceLineDrag";
+import "./chart-workspace.css";
 
 type PickField = PickSlot | null;
 
@@ -92,6 +97,9 @@ interface TradeChartProps {
   onExecutorDeselect?: () => void;
   /** Called once the series exists, with the chart's price mapping. */
   onChartReady?: (axis: ChartPriceAxis) => void;
+  onBrowseMarkets?: () => void;
+  /** An explicit, labelled navigation choice; never substitutes another venue's prices. */
+  onExplorePublicMarket?: () => void;
 }
 
 export function TradeChart({
@@ -118,12 +126,26 @@ export function TradeChart({
   selectedExecutorId,
   onExecutorDeselect,
   onChartReady,
+  onBrowseMarkets,
+  onExplorePublicMarket,
 }: TradeChartProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const legendRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const chartModuleRef = useRef<typeof import("lightweight-charts") | null>(null);
   const chartRef = useRef<import("lightweight-charts").IChartApi | null>(null);
   const seriesRef = useRef<import("lightweight-charts").ISeriesApi<"Candlestick"> | null>(null);
+  const volumeRef = useRef<import("lightweight-charts").ISeriesApi<"Histogram"> | null>(null);
+  const smaRef = useRef<import("lightweight-charts").ISeriesApi<"Line"> | null>(null);
+  const emaRef = useRef<import("lightweight-charts").ISeriesApi<"Line"> | null>(null);
+  const [preferences, setPreferences] = useState(loadChartPreferences);
+  const [measuring, setMeasuring] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [feed, setFeed] = useState<{ status: "loading" | "ready" | "empty" | "error"; message: string; restricted: boolean }>({ status: "loading", message: "", restricted: false });
+  useEffect(() => { saveChartPreferences(preferences); }, [preferences]);
+  const togglePreference = (key: keyof ChartPreferences) => setPreferences((value) => ({ ...value, [key]: !value[key] }));
   // Exact price under the pointer, never snapped to the hovered candle's close:
   // the crosshair is free vertically, so this is the price the axis label shows
   // and the only one a click or a measurement may report.
@@ -200,13 +222,14 @@ export function TradeChart({
   });
 
   // ── Candle data from the singleton store (WS live + cached) ──
-  const { candles: storedCandles, mergeCandles, setDuration } = useCandleStore(
+  const { candles: rawCandles, isStale, mergeCandles, setDuration } = useCandleStore(
     server,
     connector,
     pair,
     interval,
     poolAddress,
   );
+  const storedCandles = useMemo(() => chartCandles(rawCandles), [rawCandles]);
 
   // ── Only the picked range is drawn ──
   // The store keeps every candle any chart on this channel has loaded — a
@@ -220,6 +243,14 @@ export function TradeChart({
     const start = storedCandles.findIndex((c) => c.timestamp >= cutoff);
     return start <= 0 ? storedCandles : storedCandles.slice(start);
   }, [storedCandles, lookbackSeconds]);
+  const latestCandleRef = useRef<CandleData | undefined>(undefined);
+  latestCandleRef.current = candles.at(-1);
+  const updateLegend = (bar: Pick<CandleData, "open" | "high" | "low" | "close">) => {
+    if (!legendRef.current) return;
+    const change = bar.open ? (bar.close - bar.open) / bar.open * 100 : 0;
+    legendRef.current.textContent = `O ${formatPriceSig(bar.open)}   H ${formatPriceSig(bar.high)}   L ${formatPriceSig(bar.low)}   C ${formatPriceSig(bar.close)}   ${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
+    legendRef.current.style.color = bar.close >= bar.open ? getThemeColors().up : getThemeColors().down;
+  };
 
   // ── Filter executor overlays to those within candle time range ──
   // Depend on the earliest candle timestamp (not the candles array, whose reference
@@ -248,6 +279,8 @@ export function TradeChart({
     setDuration(lookbackSeconds);
 
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    setFeed({ status: "loading", message: "", restricted: false });
     const startTime = Math.floor(Date.now() / 1000) - lookbackSeconds;
 
     const fetchWithRetry = (attempt: number) => {
@@ -255,18 +288,25 @@ export function TradeChart({
       api
         .getCandles(server, connector, pair, interval, 5000, startTime, undefined, poolAddress)
         .then((fetched) => {
-          if (!cancelled && fetched?.length) mergeCandles(fetched);
+          if (cancelled) return;
+          const valid = chartCandles(Array.isArray(fetched) ? fetched : []);
+          if (valid.length) mergeCandles(valid);
+          setFeed({ status: valid.length ? "ready" : "empty", message: "", restricted: false });
         })
-        .catch(() => {
-          if (!cancelled && attempt < 2) {
-            setTimeout(() => fetchWithRetry(attempt + 1), 2000 * (attempt + 1));
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          const failure = chartFeedError(error);
+          if (attempt < 2 && !failure.restricted) {
+            retryTimer = setTimeout(() => fetchWithRetry(attempt + 1), 2000 * (attempt + 1));
+          } else {
+            setFeed({ status: "error", ...failure });
           }
         });
     };
     fetchWithRetry(0);
 
-    return () => { cancelled = true; };
-  }, [server, connector, pair, interval, poolAddress, lookbackSeconds]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; clearTimeout(retryTimer); };
+  }, [server, connector, pair, interval, poolAddress, lookbackSeconds, reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Initialize chart ONCE ──
   useEffect(() => {
@@ -276,18 +316,21 @@ export function TradeChart({
       chartModuleRef.current = mod;
 
       const colors = getThemeColors();
+      const scale = getLayoutScale();
       const chart = mod.createChart(containerRef.current, {
         autoSize: true,
         layout: {
           background: { type: mod.ColorType.Solid, color: colors.bg },
           textColor: colors.text,
+          fontSize: 12 * scale,
         },
         grid: {
           vertLines: { color: colors.grid },
           horzLines: { color: colors.grid },
         },
         crosshair: { mode: mod.CrosshairMode.Normal },
-        timeScale: { timeVisible: true, secondsVisible: false },
+        timeScale: { timeVisible: true, secondsVisible: false, barSpacing: 8 * scale, rightOffset: 6, borderColor: colors.border },
+        rightPriceScale: { borderColor: colors.border },
       });
       chartRef.current = chart;
 
@@ -302,6 +345,16 @@ export function TradeChart({
         }),
       });
       seriesRef.current = series;
+      volumeRef.current = chart.addSeries(mod.HistogramSeries, {
+        priceFormat: { type: "volume" }, priceScaleId: "volume", lastValueVisible: false, priceLineVisible: false,
+      });
+      volumeRef.current.priceScale()?.applyOptions({ scaleMargins: { top: .82, bottom: 0 } });
+      smaRef.current = chart.addSeries(mod.LineSeries, {
+        color: colors.primary, lineWidth: 1, title: "SMA 20", lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+      });
+      emaRef.current = chart.addSeries(mod.LineSeries, {
+        color: "#a78bfa", lineWidth: 1, title: "EMA 50", lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+      });
       setChartReady(true);
 
       // Track the pointer's price/time for click-to-set, the measure tool and
@@ -310,7 +363,10 @@ export function TradeChart({
       const tooltipView = createOverlayTooltipView();
 
       chart.subscribeCrosshairMove((param) => {
+        const bar = param.seriesData?.get(series);
+        if (bar && "open" in bar) updateLegend(bar);
         if (!param.point || !param.seriesData) {
+          if (latestCandleRef.current) updateLegend(latestCandleRef.current);
           cursorPriceRef.current = null;
           crosshairTimeRef.current = null;
           if (tooltipRef.current) tooltipView.hide(tooltipRef.current);
@@ -353,10 +409,10 @@ export function TradeChart({
             const cx = param.point.x;
             const cy = param.point.y;
             if (ax !== null && ay !== null) {
-              mbox.style.left = `${Math.min(ax, cx)}px`;
-              mbox.style.top = `${Math.min(ay, cy)}px`;
-              mbox.style.width = `${Math.abs(cx - ax)}px`;
-              mbox.style.height = `${Math.abs(cy - ay)}px`;
+              mbox.style.left = `${Math.min(ax, cx) / scale}px`;
+              mbox.style.top = `${Math.min(ay, cy) / scale}px`;
+              mbox.style.width = `${Math.abs(cx - ax) / scale}px`;
+              mbox.style.height = `${Math.abs(cy - ay) / scale}px`;
               mbox.style.borderColor = clr;
               mbox.style.background = up ? "rgba(34,197,94,0.10)" : "rgba(239,68,68,0.10)";
               mbox.style.display = "block";
@@ -376,11 +432,11 @@ export function TradeChart({
             const diffStr = absDiff >= 1 ? absDiff.toFixed(2) : absDiff.toPrecision(4);
             badge.innerHTML = `<div style="font-weight:700;font-size:14px;color:${clr};font-family:monospace">${up ? "+" : "-"}${Math.abs(pct).toFixed(2)}%</div><div style="font-size:10px;color:#6b7994;font-family:monospace">Δ ${up ? "+" : "-"}${diffStr}${durStr ? ` · ${durStr}` : ""}</div>`;
             badge.style.display = "block";
-            const mRect = containerRef.current.getBoundingClientRect();
-            let bLeft = mRect.left + param.point.x + 16;
-            let bTop = mRect.top + param.point.y - 44;
-            if (bLeft + 150 > window.innerWidth - 4) bLeft = mRect.left + param.point.x - 150 - 16;
-            if (bTop < 4) bTop = mRect.top + param.point.y + 16;
+            const mRect = toLayoutRect(containerRef.current.getBoundingClientRect());
+            let bLeft = mRect.left + param.point.x / scale + 16;
+            let bTop = mRect.top + param.point.y / scale - 44;
+            if (bLeft + 150 > getLayoutViewport().width - 4) bLeft = mRect.left + param.point.x / scale - 150 - 16;
+            if (bTop < 4) bTop = mRect.top + param.point.y / scale + 16;
             badge.style.left = `${bLeft}px`;
             badge.style.top = `${bTop}px`;
           }
@@ -448,17 +504,18 @@ export function TradeChart({
         });
 
         // Position tooltip using viewport-fixed coords (rendered via portal)
-        const containerRect = containerRef.current.getBoundingClientRect();
+        const containerRect = toLayoutRect(containerRef.current.getBoundingClientRect());
+        const viewport = getLayoutViewport();
         const tooltipW = 280;
-        const cursorInRightHalf = param.point.x > containerRect.width / 2;
+        const cursorInRightHalf = param.point.x / scale > containerRect.width / 2;
         let left = cursorInRightHalf
-          ? containerRect.left + param.point.x - tooltipW - 16
-          : containerRect.left + param.point.x + 16;
+          ? containerRect.left + param.point.x / scale - tooltipW - 16
+          : containerRect.left + param.point.x / scale + 16;
         if (left < 4) left = 4;
-        if (left + tooltipW > window.innerWidth - 4) left = window.innerWidth - tooltipW - 4;
-        let top = containerRect.top + param.point.y - 10;
-        if (top + tooltipH > window.innerHeight - 4) {
-          top = window.innerHeight - tooltipH - 4;
+        if (left + tooltipW > viewport.width - 4) left = viewport.width - tooltipW - 4;
+        let top = containerRect.top + param.point.y / scale - 10;
+        if (top + tooltipH > viewport.height - 4) {
+          top = viewport.height - tooltipH - 4;
         }
         if (top < 4) top = 4;
 
@@ -473,6 +530,9 @@ export function TradeChart({
         chartRef.current.remove();
         chartRef.current = null;
         seriesRef.current = null;
+        volumeRef.current = null;
+        smaRef.current = null;
+        emaRef.current = null;
         startLineRef.current = null;
         endLineRef.current = null;
         limitLineRef.current = null;
@@ -515,12 +575,13 @@ export function TradeChart({
     if (!chartReady) return;
     const notify = onChartReadyRef.current;
     if (!notify) return;
+    const scale = getLayoutScale();
     notify({
       priceToCoordinate: (price) => {
         const coord = seriesRef.current?.priceToCoordinate(price);
-        return coord == null ? null : (coord as number);
+        return coord == null ? null : (coord as number) / scale;
       },
-      height: () => paneHeightRef.current || containerRef.current?.clientHeight || 0,
+      height: () => (paneHeightRef.current || containerRef.current?.clientHeight || 0) / scale,
       onScaleChange: (cb) => {
         const chart = chartRef.current;
         if (!chart) return () => {};
@@ -548,10 +609,39 @@ export function TradeChart({
           horzLines: { color: colors.grid },
         },
       });
+      seriesRef.current?.applyOptions({ upColor: colors.up, downColor: colors.down, wickUpColor: colors.up, wickDownColor: colors.down });
+      smaRef.current?.applyOptions({ color: colors.primary });
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     return () => observer.disconnect();
   }, [chartReady]);
+
+  // Indicators share the price scale; volume owns a separate scale at the foot.
+  useEffect(() => {
+    if (!chartReady) return;
+    const mod = chartModuleRef.current;
+    volumeRef.current?.applyOptions({ visible: preferences.volume });
+    smaRef.current?.applyOptions({ visible: preferences.sma });
+    emaRef.current?.applyOptions({ visible: preferences.ema });
+    chartRef.current?.priceScale("right")?.applyOptions({
+      mode: preferences.logarithmic ? mod?.PriceScaleMode.Logarithmic : mod?.PriceScaleMode.Normal,
+      scaleMargins: { top: .14, bottom: preferences.volume ? .24 : .08 },
+    });
+  }, [chartReady, preferences]);
+
+  useEffect(() => {
+    if (!chartReady) return;
+    const colors = getThemeColors();
+    if (preferences.volume) volumeRef.current?.setData(candles.map((c) => ({
+      time: c.timestamp as import("lightweight-charts").UTCTimestamp,
+      value: c.volume,
+      color: c.close >= c.open ? `${colors.up}55` : `${colors.down}55`,
+    })));
+    if (preferences.sma) smaRef.current?.setData(movingAverage(candles, 20, "sma"));
+    if (preferences.ema) emaRef.current?.setData(movingAverage(candles, 50, "ema"));
+    const latest = candles.at(-1);
+    if (latest) updateLegend(latest);
+  }, [chartReady, candles, preferences.volume, preferences.sma, preferences.ema]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Signature of the last full setData() render: channel key + range +
   // earliest timestamp + count. Lets us tell a wholesale change (first load,
@@ -613,7 +703,13 @@ export function TradeChart({
 
     const removeListener = candleStore.onUpdate(key, (updated) => {
       if (!seriesRef.current || !updated.length) return;
-      const last = updated[updated.length - 1];
+      const valid = chartCandles(updated);
+      const last = valid.at(-1);
+      if (!last) return;
+      // New history is applied by the full-render effect; update() cannot insert
+      // an older bar or jump to a different market before that effect runs.
+      const previous = latestCandleRef.current;
+      if (previous && last.timestamp < previous.timestamp) return;
       seriesRef.current.update({
         time: last.timestamp as import("lightweight-charts").UTCTimestamp,
         open: last.open,
@@ -676,10 +772,10 @@ export function TradeChart({
     }
 
     if (limitPrice > 0) {
-      const limitColor = side === 1 ? getThemeColors().red : "#f97316";
+      const limitColor = side === 1 ? getThemeColors().red : "#d779a5";
       limitLineRef.current = series.createPriceLine({
         price: limitPrice,
-        color: activePickField === "limit" ? "#fbbf24" : limitColor,
+        color: activePickField === "limit" ? getThemeColors().primary : limitColor,
         lineWidth: 2,
         lineStyle: mod.LineStyle.Dotted,
         axisLabelVisible: true,
@@ -1032,7 +1128,7 @@ export function TradeChart({
 
   // Esc clears an active measurement
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") clearMeasure(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { clearMeasure(); setMeasuring(false); setExpanded(false); } };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -1059,7 +1155,7 @@ export function TradeChart({
   // consumed, so the drop cannot re-fire the pick or the executor deselect;
   // inside it the press was a click and every branch below runs as before.
   const handlePointerDown = (e: React.PointerEvent) => {
-    drag.onPointerDown(e);
+    if (!measuring) drag.onPointerDown(e);
     pointerDownRef.current = {
       x: e.clientX,
       y: e.clientY,
@@ -1081,7 +1177,7 @@ export function TradeChart({
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
 
     // Shift+click drops the measure anchor; move the mouse to see the % of the range
-    if (down.shiftKey) {
+    if (down.shiftKey || (measuring && !activePickField)) {
       if (cursorPriceRef.current != null && crosshairTimeRef.current != null) {
         clearMeasure();
         measureAnchorRef.current = { price: cursorPriceRef.current, time: crosshairTimeRef.current };
@@ -1104,7 +1200,26 @@ export function TradeChart({
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div ref={wrapperRef} className={`trading-chart${expanded ? " is-expanded" : ""}`}>
+      <ChartToolbar
+        preferences={preferences}
+        onToggle={togglePreference}
+        measuring={measuring}
+        expanded={expanded}
+        onMeasure={() => { clearMeasure(); setMeasuring((value) => !value); }}
+        onFit={() => { chartRef.current?.priceScale("right")?.applyOptions({ autoScale: true }); chartRef.current?.timeScale().fitContent(); }}
+        onLatest={() => chartRef.current?.timeScale().scrollToRealTime()}
+        onSnapshot={() => {
+          const canvas = chartRef.current?.takeScreenshot();
+          if (!canvas) return;
+          const link = document.createElement("a");
+          link.download = `griffin-${connector}-${pair}-${interval}.png`;
+          link.href = canvas.toDataURL("image/png");
+          link.click();
+        }}
+        onExpand={() => setExpanded((value) => !value)}
+        ready={chartReady && candles.length > 0}
+      />
       {activePickField && (
         <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5">
           <p className="text-[10px] text-[var(--color-text-muted)]">
@@ -1118,26 +1233,41 @@ export function TradeChart({
           </span>
         </div>
       )}
-      <div className="relative flex-1">
+      <div className="relative min-h-0 flex-1">
         <div
           ref={containerRef}
-          className="absolute inset-0"
-          style={{ cursor: activePickField ? "crosshair" : "default" }}
+          className="chart-canvas-viewport absolute inset-0"
+          style={{ cursor: activePickField || measuring ? "crosshair" : "default" }}
           onPointerDown={handlePointerDown}
           onPointerMove={drag.onPointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={drag.onPointerCancel}
         />
+        <div className="chart-legend">
+          <div className="chart-legend-title">{pair} <small>· {formatConnectorName(connector)} · {interval}</small></div>
+          <div ref={legendRef} className="chart-legend-values" aria-label="Candle OHLC" />
+        </div>
+        {!candles.length && (
+          <div className="chart-feed-state" role="status">
+            {feed.status === "loading" ? <Loader2 size={28} className="animate-spin" /> : <ChartNoAxesCombined size={30} />}
+            <strong>{feed.status === "loading" ? "Loading market data" : feed.restricted ? "Market feed unavailable here" : feed.status === "error" ? "Could not load this chart" : "No candles in this range"}</strong>
+            <p>{feed.status === "loading" ? `${pair} · ${formatConnectorName(connector)} · ${interval}` : feed.message || "This feed has not returned candles for this market and interval. Try another range or market."}</p>
+            {feed.status !== "loading" && (
+              <div className="chart-feed-actions">
+                {feed.restricted && onExplorePublicMarket && <button type="button" onClick={onExplorePublicMarket}>Open Kraken BTC/USD</button>}
+                <button type="button" onClick={() => setReload((value) => value + 1)}><RefreshCw size={12} className="mr-1 inline" />Retry feed</button>
+                {onBrowseMarkets && <button type="button" onClick={onBrowseMarkets}>Explore markets</button>}
+              </div>
+            )}
+          </div>
+        )}
+        {candles.length > 0 && feed.status === "error" && <div className="chart-refresh-error">Showing cached candles. {feed.message} <button type="button" className="underline" onClick={() => setReload((value) => value + 1)}>Retry</button></div>}
         {/* Measure box overlay — pure DOM, never touches chart series */}
         <div
           ref={measureBoxRef}
           className="pointer-events-none absolute z-10"
           style={{ display: "none", border: "1px dashed", borderRadius: 2 }}
         />
-        {/* Measure-tool and drag discoverability hint */}
-        <div className="pointer-events-none absolute bottom-1 left-2 z-10 text-[9px] text-[var(--color-text-muted)] opacity-60">
-          ⇧+click: measure range · drag a price line to move it
-        </div>
         {/* Executor tooltip overlay — rendered via portal to escape overflow-hidden */}
         {createPortal(
           <div
@@ -1186,6 +1316,13 @@ export function TradeChart({
           />,
           document.body,
         )}
+      </div>
+      <div className="chart-status-bar">
+        <span className="chart-status-dot" data-ready={candles.length > 0 && !isStale} />
+        <span>{!candles.length ? feed.status === "loading" ? "Connecting to feed" : "Feed unavailable" : isStale ? "Waiting for an update" : "Market data"}</span>
+        {candles.length > 0 && <span>· {candles.length.toLocaleString()} candles</span>}
+        <span className="chart-status-hint">{measuring ? "Click to anchor · move to measure · Esc clears" : "Scroll to zoom · drag to pan · ⇧ click to measure"}</span>
+        <Activity size={11} />
       </div>
     </div>
   );

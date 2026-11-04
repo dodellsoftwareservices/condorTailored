@@ -33,9 +33,9 @@ OPTIONS = (
 
 # Everything an install is told.
 DISCLOSURE = {
-    "headline": "Condor shares anonymous usage stats",
+    "headline": "Griffin shares anonymous usage stats",
     "summary": (
-        "To learn what gets used and what breaks, Condor sends a random install "
+        "To learn what gets used and what breaks, Griffin sends a random install "
         "id, its version, which commands and screens are used, errors, and "
         "which models agents run. Nothing about you or your trading."
     ),
@@ -165,7 +165,7 @@ async def callback_handler(update, context) -> None:
         if answer == consent.OFF:
             consent.deny()
             await query.edit_message_text(
-                "Understood. Condor will report nothing at all, and will not "
+                "Understood. Griffin will report nothing at all, and will not "
                 "ask again. Settings \u2192 Privacy can turn it back on."
             )
             return
@@ -180,12 +180,12 @@ async def callback_handler(update, context) -> None:
             emitter.emit("install")
         if chosen == consent.PING:
             await query.edit_message_text(
-                "Thanks. Condor will only report that this install exists and "
+                "Thanks. Griffin will only report that this install exists and "
                 "which version it runs. PRIVACY.md says how to change this."
             )
         else:
             await query.edit_message_text(
-                "Thanks. Condor sends anonymous usage and reliability events. "
+                "Thanks. Griffin sends anonymous usage and reliability events. "
                 "No keys, addresses, pairs, amounts or prompts ever leave this "
                 "machine. Settings \u2192 Privacy turns it off at any time."
             )

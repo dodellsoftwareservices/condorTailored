@@ -2,7 +2,7 @@
 //
 // This is the reusable connect-wallet layer: wallet discovery (EIP-6963), account connection,
 // chain switching, EIP-712 signing, and a nonce manager. Venue modules build on top of it
-// (e.g. wallet/hyperliquid.ts), and new EVM keys (e.g. a plain Ethereum signer) can reuse it
+// (e.g. a plain Ethereum signer) can reuse it
 // directly. Non-EVM families (e.g. Solana) belong in a sibling module, not here.
 
 // ── Minimal EIP-1193 / EIP-6963 provider types ──

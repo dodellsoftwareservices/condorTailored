@@ -131,7 +131,7 @@ Details that matter when tuning:
 |---|---|---|---|---|
 | `controller_name` | str | `pmm_simple` | | Must be `pmm_simple`. |
 | `controller_type` | str | `market_making` | | Must be `market_making`. |
-| `id` | str | required | | Do not put it in a sample; Condor names uploads `pmm_simple__<style>`. |
+| `id` | str | required | | Do not put it in a sample; Griffin names uploads `pmm_simple__<style>`. |
 | `connector_name` | str | `binance_perpetual` | | `_perpetual` suffix = perps (no rebalance, leverage applies); bare name = spot. |
 | `trading_pair` | str | `WLD-USDT` | | `BASE-QUOTE`. Pick deep books; thin books mean adverse selection. |
 | `total_amount_quote` | Decimal | 100 | yes | Total quote notional across **all** levels on **both** sides. Check each order clears the exchange min notional. |

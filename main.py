@@ -810,6 +810,13 @@ async def startup(application: Application) -> None:
     except Exception:
         logger.exception("Boot reconciliation failed; continuing startup")
 
+    # The simulated market maker keeps its own autostart file; it resumes only if it was
+    # running (not stopped, not halted) when the last process went down.
+    from condor.web.routes.sim_exchange import resume_market_maker_on_boot
+
+    if await resume_market_maker_on_boot():
+        logger.info("Simulated market maker resumed after restart")
+
     # Schedule periodic update checks (notifies admin)
     from handlers.admin.update import schedule_update_checks
 
@@ -854,6 +861,37 @@ async def startup(application: Application) -> None:
         reflection.register_jobs(application)
     except Exception:
         logger.exception("Reflection job registration failed (continuing without it)")
+
+    # Conversation retention (system review 2026-10-31, finding #23): the
+    # store was never pruned at all. Reflection's neighbour by shape — same
+    # cross-user job-queue sweep — but off by default: unlike a reproducible
+    # cache, deleting a conversation is the one failure mode the transcript's
+    # own byte retention was built to avoid, so this only does anything once
+    # an operator opts in via CONDOR_CONVERSATION_RETENTION_DAYS.
+    try:
+        from condor.runtime import conversations
+
+        conversations.register_jobs(application)
+    except Exception:
+        logger.exception(
+            "Conversation prune job registration failed (continuing without it)"
+        )
+
+    # Probe backend authentication even when no routine is currently running.
+    try:
+        from condor.service_health import register_jobs as register_health_jobs
+
+        register_health_jobs(application)
+    except Exception:
+        logger.exception("Backend health job registration failed")
+
+    # Observe paper equity independently of dashboard visits, without matching orders.
+    try:
+        from condor.dashboard_history import register_jobs as register_dashboard_jobs
+
+        register_dashboard_jobs(application)
+    except Exception:
+        logger.exception("Dashboard equity sampler registration failed")
 
     # Start file watcher
     asyncio.create_task(watch_and_reload(application))
@@ -1194,6 +1232,32 @@ async def _run_dual(application: Application) -> None:
                     "tailnet address.",
                     WEB_HOST,
                 )
+    elif LOCAL_MODE:
+        pass  # loopback-only and logged again below with the rest of local-mode's startup banner
+    elif os.environ.get("WEB_HOST", "").strip():
+        # Same reasoning as the Tailscale branch above: an explicit WEB_HOST
+        # is a choice someone made, not a fault to flag on every boot.
+        logger.info(
+            "Dashboard on http://%s:%s — WEB_HOST was set explicitly.",
+            WEB_HOST,
+            WEB_PORT,
+        )
+    else:
+        # Telegram mode, no Tailscale, no explicit WEB_HOST: resolve_web_host
+        # fell back to 0.0.0.0, which authenticates (it is not local mode's
+        # open dashboard) but still speaks plain HTTP. Said on every boot,
+        # not just at setup time, because this also catches a manually edited
+        # .env that setup-environment.sh never saw.
+        logger.warning(
+            "Dashboard bound to %s:%s with no Tailscale and no TLS anywhere "
+            "in front of it: the login link, the session cookie and "
+            "hummingbot-api's own password all travel as plain HTTP to "
+            "whoever can reach this port. Set USE_TAILSCALE=true in .env "
+            "(then restart), or put a TLS-terminating reverse proxy in "
+            "front, before exposing this beyond localhost.",
+            WEB_HOST,
+            WEB_PORT,
+        )
     server = uvicorn.Server(_web_server_config(web_app))
 
     # Start WebSocket manager

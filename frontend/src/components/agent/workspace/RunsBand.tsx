@@ -161,7 +161,7 @@ function ConversationRun({ run }: { run: AgentRunRow }) {
         </div>
       ) : data?.predates_ledger ? (
         <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-xs text-[var(--color-text-muted)]">
-          This chat ran before Condor recorded what a conversation deployed, so
+          This chat ran before Griffin recorded what a conversation deployed, so
           there is nothing to show — which is not the same as it having deployed
           nothing.
         </p>

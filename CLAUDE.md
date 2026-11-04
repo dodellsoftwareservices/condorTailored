@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Owner's UI color rule
+
+Never use yellow, amber, or orange in the UI. Negative PnL, losses, errors,
+warnings, and attention states use a readable soft red in every theme. Griffin's
+primary accent uses BMW factory light blue tones; categorical charts use blue,
+teal, violet, rose, or neutral colors. Use `--color-red`, `--chart-down`, and
+`--color-warning` instead of warm color utilities or literals. Run
+`npm run check:colors` in `frontend` after color changes. The workspace root
+`AGENTS.md` records this preference for other coding agents.
+
 ## Project Overview
 
 Condor is a Telegram bot for monitoring and trading with Hummingbot via the Backend API. It provides portfolio tracking, bot monitoring, CEX/DEX trading, and configuration management through an interactive Telegram interface.

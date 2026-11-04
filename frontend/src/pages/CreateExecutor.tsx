@@ -24,6 +24,8 @@ import { MarketBrowser, type MarketPick } from "@/components/market/MarketBrowse
 import { FavoritesStrip } from "@/components/market/FavoritesStrip";
 import { StarMarketButton } from "@/components/market/StarMarketButton";
 import { TradeChart } from "@/components/trade/TradeChart";
+import { WorkspaceViewSwitch, type WorkspaceView } from "@/components/trade/WorkspaceViewSwitch";
+import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { GridConfigPanel } from "@/components/grid/GridConfigPanel";
 import {
   ErrorToast,
@@ -47,7 +49,6 @@ import { usePairBalances } from "@/hooks/usePairBalances";
 import { useServer } from "@/hooks/useServer";
 import { useCondorWebSocket } from "@/hooks/useWebSocket";
 import { useMainControllerData } from "@/hooks/useMainControllerData";
-import { useResizeDrag } from "@/hooks/useResizeDrag";
 import { api } from "@/lib/api";
 import { candleStore } from "@/lib/candle-store";
 import { connectorCapabilities, orderBookVenues } from "@/lib/connector-capabilities";
@@ -160,6 +161,7 @@ export function CreateExecutor() {
   );
   const [rightPanelWidth, setRightPanelWidth] = useState(288);
   const [bottomPaneHeight, setBottomPaneHeight] = useState(200);
+  const [mobileView, setMobileView] = useState<WorkspaceView>("chart");
   // The selection belongs to the market it was made in, so it carries that
   // market with it and simply stops matching when the market changes. Clearing
   // it from an effect instead used to cost a second render pass on every
@@ -175,26 +177,6 @@ export function CreateExecutor() {
     (id: string | null) => setSelection({ market: selectionMarket, id }),
     [selectionMarket],
   );
-
-  const { onMouseDown: startHDrag } = useResizeDrag({
-    axis: "x",
-    value: rightPanelWidth,
-    onChange: setRightPanelWidth,
-    min: 260,
-    max: 500,
-    direction: "inverted",
-    cursor: "col-resize",
-  });
-
-  const { onMouseDown: startVDrag } = useResizeDrag({
-    axis: "y",
-    value: bottomPaneHeight,
-    onChange: setBottomPaneHeight,
-    min: 100,
-    max: 500,
-    direction: "inverted",
-    cursor: "row-resize",
-  });
 
   // One query, one answer: every venue the panel can offer, each with the traits
   // the UI decisions below rest on. Shared with DexPool through `useVenues`, so
@@ -605,12 +587,13 @@ export function CreateExecutor() {
   }
 
   return (
-    <div className="-m-6 flex h-[calc(100%+3rem)] flex-col">
+    <div className="trading-workspace" data-mobile-view={mobileView}>
       {/* Top Bar */}
-      <div className="flex items-center border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="trade-workspace-toolbar flex items-center border-b border-[var(--color-border)] bg-[var(--color-surface)]">
         {/* Back button */}
         <button
           onClick={() => navigate(-1)}
+          aria-label="Go back"
           className="flex items-center gap-1 border-r border-[var(--color-border)] px-3 py-2.5 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
@@ -692,7 +675,7 @@ export function CreateExecutor() {
         </div>
 
         {/* Interval + Range */}
-        <div className="flex items-center gap-3 border-l border-[var(--color-border)] px-4 py-2">
+        <div className="trade-time-controls flex items-center gap-3 border-l border-[var(--color-border)] px-4 py-2">
           <div className="flex overflow-hidden rounded-md border border-[var(--color-border)]">
             {INTERVALS.map((iv) => (
               <button
@@ -730,6 +713,8 @@ export function CreateExecutor() {
         </div>
       </div>
 
+      <WorkspaceViewSwitch value={mobileView} onChange={setMobileView} />
+
       {/* This server's starred markets — one click to the chart, no overlay. */}
       {caps.hasOrderBook && !browserOpen && (
         <FavoritesStrip
@@ -741,9 +726,9 @@ export function CreateExecutor() {
       )}
 
       {/* Main Area: Chart + Right Panel */}
-      <div className="flex min-h-0 flex-1">
+      <div className="trade-main-area">
         {/* Chart + Bottom Pane */}
-        <div className="relative min-w-0 flex-1 flex flex-col">
+        <div className="trade-chart-column relative min-w-0 flex-1 flex flex-col">
           {browserOpen && caps.hasOrderBook && (
             <MarketBrowser
               server={server}
@@ -755,7 +740,7 @@ export function CreateExecutor() {
               onClose={() => setBrowserOpen(false)}
             />
           )}
-          <div className="flex-1 min-h-0 overflow-hidden bg-[var(--color-surface)]">
+          <div className="trade-chart-surface flex-1 min-h-0 overflow-hidden bg-[var(--color-surface)]">
             <TradeChart
               key={`${connector}:${pair}:${gridState.interval}`}
               server={server}
@@ -781,13 +766,8 @@ export function CreateExecutor() {
             />
           </div>
           {/* Horizontal resize handle */}
-          <div
-            className="group/hdrag relative h-1.5 shrink-0 cursor-row-resize border-y border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-primary)]/10 active:bg-[var(--color-primary)]/20 transition-colors"
-            onMouseDown={startVDrag}
-          >
-            <div className="absolute inset-x-0 top-1/2 mx-auto h-px w-12 -translate-y-1/2 rounded bg-amber-400/60 group-hover/hdrag:bg-amber-400 transition-colors" />
-          </div>
-          <div style={{ height: bottomPaneHeight }} className="shrink-0 overflow-hidden">
+          <ResizeHandle axis="y" value={bottomPaneHeight} onChange={setBottomPaneHeight} min={100} max={500} reset={200} label="Resize trading activity" />
+          <div style={{ height: bottomPaneHeight }} className="trade-activity-panel shrink-0 overflow-hidden">
             <TradeBottomPane
               executors={mainExecutors}
               positions={mainPositions}
@@ -815,15 +795,10 @@ export function CreateExecutor() {
         </div>
 
         {/* Vertical resize handle */}
-        <div
-          className="group/vdrag relative w-1.5 shrink-0 cursor-col-resize border-x border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-primary)]/10 active:bg-[var(--color-primary)]/20 transition-colors"
-          onMouseDown={startHDrag}
-        >
-          <div className="absolute inset-y-0 left-1/2 my-auto h-12 w-px -translate-x-1/2 rounded bg-amber-400/60 group-hover/vdrag:bg-amber-400 transition-colors" />
-        </div>
+        <ResizeHandle axis="x" value={rightPanelWidth} onChange={setRightPanelWidth} min={260} max={500} reset={288} label="Resize order panel" />
 
         {/* Right Panel */}
-        <div className="flex shrink-0 flex-col bg-[var(--color-surface)]" style={{ width: rightPanelWidth }}>
+        <div className="trade-config-panel flex shrink-0 flex-col bg-[var(--color-surface)]" style={{ width: rightPanelWidth }}>
           {/* Panel Mode Toggle */}
           <div className="flex border-b border-[var(--color-border)]">
             <button

@@ -41,7 +41,12 @@ from condor.runtime.confirmations import (
 from condor.runtime.events import RuntimeEvent
 from condor.runtime.timeouts import TIMEOUTS
 from condor.runtime.wake import register_note_sink, register_sink_factory
-from condor.web.auth import decode_jwt, extract_ws_token, get_current_user
+from condor.web.auth import (
+    decode_jwt,
+    extract_ws_token,
+    get_current_user,
+    watch_websocket_session,
+)
 from condor.web.models import WebUser
 
 log = logging.getLogger(__name__)
@@ -421,9 +426,8 @@ register_push_sink(_push_notification)
 async def chat_websocket(ws: WebSocket, token: str | None = Query(default=None)):
     """Chat WebSocket endpoint.
 
-    Authenticates via the JWT passed in the ``Sec-WebSocket-Protocol``
-    subprotocol header (preferred), falling back to the deprecated ``?token=``
-    query param for older clients / live sessions.
+    Authenticates via the browser cookie or a service-client subprotocol JWT.
+    URL credentials are no longer accepted.
     """
     auth_token, accept_subprotocol = extract_ws_token(ws, token)
     payload = decode_jwt(auth_token) if auth_token else None
@@ -473,8 +477,14 @@ async def chat_websocket(ws: WebSocket, token: str | None = Query(default=None))
             task.add_done_callback(turn_tasks.discard)
 
     try:
+        watcher = asyncio.create_task(
+            watch_websocket_session(ws, auth_token, decode_jwt)
+        )
         while True:
             raw = await ws.receive_text()
+            if decode_jwt(auth_token) is None:
+                await ws.close(code=4001, reason="Session expired")
+                break
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
@@ -508,6 +518,8 @@ async def chat_websocket(ws: WebSocket, token: str | None = Query(default=None))
     except Exception:
         log.exception("Chat WS error for user %d", user_id)
     finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
         attached = _attached_sockets.get(user_id)
         if attached is not None:
             attached.discard(ws)

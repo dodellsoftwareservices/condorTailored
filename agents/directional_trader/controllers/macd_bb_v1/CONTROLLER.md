@@ -135,7 +135,7 @@ Fields marked "updatable" carry `is_updatable: True` and can be changed on a run
 | `trailing_stop` | object or null | null | `{activation_price, trailing_delta}` as fractions. Updatable. |
 | `manual_kill_switch` | bool | false | Inherited; true stops the controller AND sends a stop to every executor it owns, closing position executors by default; false restarts it. Updatable. |
 | `initial_positions` | list | [] | Inherited; leave empty. |
-| `id` | str | required | Do not put it in samples; Condor sets `macd_bb_v1__<style>` on upload. |
+| `id` | str | required | Do not put it in samples; Griffin sets `macd_bb_v1__<style>` on upload. |
 
 ## Config gotchas
 

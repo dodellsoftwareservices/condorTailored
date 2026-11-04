@@ -203,6 +203,33 @@ def test_the_model_settings_reach_the_request(tmp_path, monkeypatch):
     assert seen[0]["reasoning"] == {"effort": "high"}
 
 
+def test_openrouter_provider_pin_is_scoped_to_exact_model(tmp_path, monkeypatch):
+    target = "openrouter:deepseek/deepseek-v4.1-flash-1017"
+    _config(
+        tmp_path,
+        monkeypatch,
+        {
+            "openrouterProviderOnly": {
+                "deepseek/deepseek-v4.1-flash-1017": ["wafer/mxfp4"]
+            }
+        },
+    )
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=_completion("ok"))
+
+    agent = Agent(
+        _openrouter_model(handler),
+        model_settings=PydanticAIClient(target)._model_settings(),
+    )
+    asyncio.run(agent.run("hi"))
+
+    assert seen[0]["provider"] == {"only": ["wafer/mxfp4"]}
+    assert PydanticAIClient(OR_FREE)._model_settings() is None
+
+
 # ── the budget gate, through the real model class ──
 
 

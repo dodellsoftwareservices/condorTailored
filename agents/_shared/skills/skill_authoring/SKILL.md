@@ -67,7 +67,7 @@ All skill operations go through `manage_skill`. Key actions:
 
 ```
 manage_skill(action="create", ..., shared=True)   # → shared library, every agent reads it
-manage_skill(action="edit",   ..., shared=False)  # → moves it back to Condor's own library
+manage_skill(action="edit",   ..., shared=False)  # → moves it back to Griffin's own library
 manage_skill(action="create", ..., agent="slug")  # → that agent's private library
 ```
 

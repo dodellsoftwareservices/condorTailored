@@ -120,7 +120,7 @@ controller without redeploying. Controller-specific fields are not updatable.
 |---|---|---|---|---|
 | `controller_name` | str | `bollinger_v1` | Must equal the folder/file name | Do not change |
 | `controller_type` | str | `directional_trading` | Server category | Always `directional_trading` |
-| `id` | str | required | Saved-config id | Omit in samples; Condor sets `bollinger_v1__<style>` on upload |
+| `id` | str | required | Saved-config id | Omit in samples; Griffin sets `bollinger_v1__<style>` on upload |
 | `connector_name` | str | `binance_perpetual` | Execution venue | Perps recommended (see gotchas) |
 | `trading_pair` | str | `WLD-USDT` | Traded pair | Liquid pairs only; taker entries |
 | `candles_connector` | str | None | Candle source venue | **Set it explicitly** (see gotchas) |

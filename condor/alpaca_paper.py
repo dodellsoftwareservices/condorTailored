@@ -19,11 +19,20 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import aiohttp
+
+from condor.equity_observability import (
+    EquityEvent,
+    EquityMeasurement,
+    equity_correlation_id,
+    equity_metrics,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +52,14 @@ class AlpacaConfigError(RuntimeError):
 
 class AlpacaAPIError(RuntimeError):
     """Alpaca answered with a non-2xx status."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class AlpacaTransportError(AlpacaAPIError):
+    """No reliable response. An order may exist: reconcile before retrying."""
 
 
 @dataclass(frozen=True)
@@ -105,27 +122,72 @@ class AlpacaPaperClient:
         }
 
     async def _request(self, method: str, host: str, path: str, **kw) -> dict | list:
+        if host not in (self._trading_host, self._data_host):
+            raise AlpacaConfigError("Refusing an unapproved Alpaca request host")
+        if not path.startswith("/"):
+            raise AlpacaConfigError("Alpaca request paths must start with a slash")
         url = f"{host}{path}"
-        async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
-            async with session.request(
-                method, url, headers=self._headers, **kw
-            ) as resp:
-                body = await resp.text()
-                if resp.status == 403 and host == self._data_host:
-                    raise AlpacaAPIError(
-                        "403 from the data API. The free Basic plan serves IEX "
-                        "only; this symbol or feed needs Algo Trader Plus."
-                    )
-                if resp.status >= 400:
-                    raise AlpacaAPIError(
-                        f"{method} {path} -> {resp.status}: {body[:300]}"
-                    )
-                try:
-                    return json.loads(body) if body else {}
-                except ValueError as e:
-                    raise AlpacaAPIError(
-                        f"Unparseable response from {path}: {e}"
-                    ) from e
+        # aiohttp retains custom APCA authentication headers on redirects.
+        # Validate every destination by refusing redirects altogether.
+        kw["allow_redirects"] = False
+        started = time.monotonic()
+        outcome = "abandoned"
+        order = method == "POST" and host == self._trading_host and path == "/v2/orders"
+        if order:
+            equity_metrics.record(EquityEvent.ORDER_SUBMISSION)
+        try:
+            async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+                async with session.request(
+                    method, url, headers=self._headers, **kw
+                ) as resp:
+                    outcome = f"http_{resp.status}"
+                    if not 200 <= resp.status < 300:
+                        if resp.status == 429:
+                            equity_metrics.record(EquityEvent.PROVIDER_RATE_LIMITED)
+                        if order and 400 <= resp.status < 500:
+                            equity_metrics.record(EquityEvent.ORDER_REJECTED)
+                        # Never echo upstream bodies: they can include credentials
+                        # or order/account details, including in malformed JSON.
+                        raise AlpacaAPIError(
+                            f"Alpaca request failed (HTTP {resp.status})",
+                            status_code=resp.status,
+                        )
+                    body = await resp.text()
+                    try:
+                        result = json.loads(body) if body else {}
+                    except ValueError:
+                        outcome = "invalid_json"
+                        raise AlpacaAPIError("Invalid JSON from Alpaca") from None
+                    if not isinstance(result, (dict, list)):
+                        outcome = "invalid_shape"
+                        raise AlpacaAPIError("Unexpected response shape from Alpaca")
+                    equity_metrics.record(EquityEvent.PROVIDER_OK)
+                    return result
+        except TimeoutError:
+            outcome = "timeout"
+            equity_metrics.record(EquityEvent.PROVIDER_TIMEOUT)
+            raise AlpacaTransportError(
+                "Alpaca request timed out; reconcile orders before retrying"
+            ) from None
+        except aiohttp.ClientError:
+            outcome = "connection_error"
+            equity_metrics.record(EquityEvent.PROVIDER_ERROR)
+            raise AlpacaTransportError(
+                "Alpaca connection failed; reconcile orders before retrying"
+            ) from None
+        except AlpacaAPIError:
+            equity_metrics.record(EquityEvent.PROVIDER_ERROR)
+            raise
+        finally:
+            elapsed = time.monotonic() - started
+            equity_metrics.observe(EquityMeasurement.PROVIDER_LATENCY_SECONDS, elapsed)
+            logger.info(
+                "Equity provider request source=%s correlation_id=%s outcome=%s latency_seconds=%.6f",
+                "alpaca_paper" if host == self._trading_host else "alpaca_data",
+                equity_correlation_id.get(),
+                outcome,
+                elapsed,
+            )
 
     # -- account ----------------------------------------------------------
 
@@ -160,6 +222,42 @@ class AlpacaPaperClient:
 
     # -- orders -----------------------------------------------------------
 
+    async def get_portfolio_history(self, period: str = "1M") -> dict:
+        if period not in {"1D", "1W", "1M", "3M"}:
+            raise ValueError("Unsupported portfolio history period")
+        raw = await self._request(
+            "GET",
+            self._trading_host,
+            "/v2/account/portfolio/history",
+            params={"period": period, "timeframe": "5Min" if period == "1D" else "1D"},
+        )
+        if not isinstance(raw, dict):
+            raise AlpacaAPIError("Invalid portfolio history from Alpaca")
+        return raw
+
+    async def get_fill_history(self) -> tuple[list[dict], bool]:
+        """Oldest-first fills, with explicit completeness for cost-basis matching."""
+        rows: list[dict] = []
+        cursor = None
+        seen: set[str] = set()
+        for _ in range(20):
+            params = {"direction": "asc", "page_size": 100}
+            if cursor:
+                params["page_token"] = cursor
+            page = await self._request(
+                "GET", self._trading_host, "/v2/account/activities/FILL", params=params
+            )
+            if not isinstance(page, list):
+                raise AlpacaAPIError("Invalid fill history from Alpaca")
+            rows.extend(page)
+            if len(page) < 100:
+                return rows, True
+            cursor = str(page[-1].get("id") or "")
+            if not cursor or cursor in seen:
+                return rows, False
+            seen.add(cursor)
+        return rows, False
+
     async def submit_notional_order(
         self, symbol: str, notional: float, side: str = "buy"
     ) -> dict:
@@ -169,8 +267,14 @@ class AlpacaPaperClient:
         position without rounding to whole shares. Alpaca accepts these as
         market DAY orders on fractionable symbols, which VOO, VTI and SPY are.
         """
-        if notional <= 0:
-            raise ValueError("notional must be positive")
+        if (
+            not math.isfinite(notional)
+            or notional <= 0
+            or float(f"{notional:.2f}") <= 0
+        ):
+            raise ValueError("notional must be finite and positive at cent precision")
+        if side not in ("buy", "sell"):
+            raise ValueError("side must be buy or sell")
         payload = {
             "symbol": symbol.upper(),
             "notional": f"{notional:.2f}",

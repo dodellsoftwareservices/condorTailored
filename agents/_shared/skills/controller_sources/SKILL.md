@@ -8,7 +8,7 @@ source: builtin
 # Controller sources
 
 ## Seat check
-- **Condor (chat):** you onboard. Write a user's controller into the target agent with
+- **Griffin (chat):** you onboard. Write a user's controller into the target agent with
   `agent="<slug>"`, or `pull` it from a server. You may publish to `_shared` with
   `shared=true` (no `agent`).
 - **An agent:** you operate your own folder. You can read `_shared` controllers but cannot
@@ -37,9 +37,9 @@ are not a copy: each run loads the server copy fresh, so they never lag.
 | **running bots** | each bot container's imported class | only on stop → archive → redeploy |
 | *backtests* | not a copy: each run loads the **server** copy fresh | every run (never lags) |
 
-The server copy is one per **name**, shared by every agent (and every Condor, and every
-human) pushing to that server. The impact lists the agents on *this* Condor that own the same
-name; it cannot see another Condor or a hand edit. Those show up as `drift` instead.
+The server copy is one per **name**, shared by every agent (and every Griffin, and every
+human) pushing to that server. The impact lists the agents on *this* Griffin that own the same
+name; it cannot see another Griffin or a hand edit. Those show up as `drift` instead.
 
 ## Layout
 ```
@@ -120,7 +120,7 @@ The result carries `impact_text` again, now describing what happened.
   under a **new name** into your own folder. Reusing the shared name would put two
   different files under one server name, and they would drift against each other forever.
 
-## Onboarding a user's controller folder (Condor)
+## Onboarding a user's controller folder (Griffin)
 1. Review read-only: class names, controller type, config class fields, and for each
    sample: the `controller_name` matches, the fields exist, numbers are numbers. Report the
    problems before writing anything.

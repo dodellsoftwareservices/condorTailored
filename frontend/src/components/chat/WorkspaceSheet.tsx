@@ -301,7 +301,7 @@ export function WorkspaceSheet({
         className={
           zen
             ? "relative z-10 flex h-full w-full flex-col bg-[var(--color-bg)]"
-            : `relative z-10 flex h-[90vh] w-[95vw] flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-2xl ${
+            : `relative z-10 flex h-[calc(var(--app-viewport-height)*0.9)] w-[calc(var(--app-viewport-width)*0.95)] flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-2xl ${
                 bleed ? "" : "max-w-5xl"
               }`
         }

@@ -1169,6 +1169,12 @@ class ACPClient:
         which is the order providers document for a prompt that asks about a
         picture — the question reads against something already in view.
         """
+        # Re-check per turn so editing the budget also covers existing clients.
+        from condor.llm.budget import unmetered_backend_error
+
+        cost_error = unmetered_backend_error()
+        if cost_error:
+            raise RuntimeError(cost_error)
         assert self._process and self._session_id
 
         # No second turn until the previous one has actually ended at the

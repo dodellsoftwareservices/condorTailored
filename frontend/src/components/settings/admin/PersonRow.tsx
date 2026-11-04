@@ -43,6 +43,7 @@ export function PersonRow({
   const [copied, setCopied] = useState(false);
   const [confirmBlock, setConfirmBlock] = useState(false);
   const [confirmCodeRun, setConfirmCodeRun] = useState(false);
+  const [confirmResetTwoFactor, setConfirmResetTwoFactor] = useState(false);
   const [pendingServer, setPendingServer] = useState<string | null>(null);
 
   const refresh = () => {
@@ -72,6 +73,14 @@ export function PersonRow({
     onSuccess: () => {
       refresh();
       setConfirmCodeRun(false);
+    },
+  });
+
+  const resetTwoFactorMut = useMutation({
+    mutationFn: () => adminApi.resetTwoFactor(person.user_id),
+    onSuccess: () => {
+      refresh();
+      setConfirmResetTwoFactor(false);
     },
   });
 
@@ -197,11 +206,13 @@ export function PersonRow({
             accessMut.mutate({ server, permission });
           }}
           onSetCodeRun={setCodeRun}
+          onResetTwoFactor={() => setConfirmResetTwoFactor(true)}
           rolePending={roleMut.isPending}
           pendingServer={pendingServer}
           roleError={(roleMut.error as Error | null)?.message}
           accessError={(accessMut.error as Error | null)?.message}
           codeRunError={(codeRunMut.error as Error | null)?.message}
+          resetTwoFactorError={(resetTwoFactorMut.error as Error | null)?.message}
         />
       )}
 
@@ -236,6 +247,23 @@ export function PersonRow({
         server&apos;s credentials, the dashboard&apos;s JWT secret and the environment
         are readable, and the process is writable. It is admin-equivalent in practice.
         Only grant it to someone you would make an admin.
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={confirmResetTwoFactor}
+        title={`Reset 2FA for ${name}?`}
+        confirmLabel="Reset 2FA"
+        pendingLabel="Resetting..."
+        isPending={resetTwoFactorMut.isPending}
+        isError={resetTwoFactorMut.isError}
+        errorText={(resetTwoFactorMut.error as Error | null)?.message}
+        onConfirm={() => resetTwoFactorMut.mutate()}
+        onClose={() => setConfirmResetTwoFactor(false)}
+      >
+        Turns off their 2FA immediately, with no code required. Only do this
+        after verifying who you're talking to some other way (they contacted
+        you outside the dashboard) — this is the one bypass that does not
+        require proving possession of anything.
       </ConfirmDialog>
     </div>
   );

@@ -38,13 +38,23 @@ export function ServerSelector() {
     [JSON.stringify(onlineServers.map((s) => [s.name, s.is_default]))],
   );
 
-  // Auto-select only when no server is saved yet: the user's default if it is
-  // up, otherwise the first server that is.
+  // A saved name the backend no longer lists (server deleted or renamed, or a
+  // config.yml that was reset) is as good as no selection: every request would
+  // fail with "Server '<name>' not found". Only judged once the list has loaded.
+  const savedIsStale =
+    !!server && servers !== undefined && !servers.some((s) => s.name === server);
+
+  // Auto-select when nothing usable is saved: the user's default if it is up,
+  // otherwise the first server that is. A stale name with nothing online to
+  // replace it is cleared, so pages show "No server" rather than erroring.
   useEffect(() => {
-    if (!server && onlineServerNames.length > 0) {
+    if (server && !savedIsStale) return;
+    if (onlineServerNames.length > 0) {
       setServer(defaultOnlineName ?? onlineServerNames[0]);
+    } else if (savedIsStale) {
+      setServer("");
     }
-  }, [server, onlineServerNames, defaultOnlineName, setServer]);
+  }, [server, savedIsStale, onlineServerNames, defaultOnlineName, setServer]);
 
   const current = servers?.find((s) => s.name === server);
 
@@ -55,9 +65,9 @@ export function ServerSelector() {
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="listbox"
-        className="flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-1.5 text-sm hover:bg-[var(--color-surface-hover)] transition-colors"
+        className="flex h-9 items-center gap-2 rounded-[10px] border border-[var(--shell-hairline)] bg-[var(--shell-hover)] px-2.5 text-xs font-medium hover:bg-[var(--shell-active)] transition-colors"
       >
-        <Server className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" />
+        <Server className="hidden h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)] sm:block" />
         <span className="truncate max-w-[120px]">{current?.name || "No server"}</span>
         {current?.online && (
           <Circle className="h-1.5 w-1.5 shrink-0 fill-current text-[var(--color-green)]" />
@@ -95,7 +105,7 @@ export function ServerSelector() {
             <span className="truncate">{s.name}</span>
             {s.is_default && (
               <Star
-                className="h-2.5 w-2.5 shrink-0 fill-current text-amber-400"
+                className="h-2.5 w-2.5 shrink-0 fill-current text-[var(--color-primary)]"
                 aria-label="Default server"
               />
             )}

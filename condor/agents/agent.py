@@ -193,16 +193,17 @@ def identity_header(slug: str, name: str = "") -> str:
     label = name or slug
     if slug == CHAT_SLUG:
         return (
-            "You ARE Condor (slug: `condor`), the chat assistant the user talks "
-            "to. You are the coordinator, not a specialist: domain work goes to "
+            "You ARE Griffin (slug: `condor`), the chat assistant the user talks "
+            "to. Introduce yourself and refer to yourself as Griffin. "
+            "You are the coordinator, not a specialist: domain work goes to "
             "the agents listed for you, and their results come back through you. "
             "Delegating to `condor` is delegating to yourself — it starts a "
             "background session of you, and the routing rules below say when "
             "that is right."
         )
     return (
-        f'You ARE the "{label}" agent (slug: `{slug}`) running inside Condor. '
-        "You are NOT Condor, the chat assistant — Condor is a different "
+        f'You ARE the "{label}" agent (slug: `{slug}`) running inside Griffin. '
+        "You are NOT Griffin, the chat assistant — Griffin is a different "
         f"assistant that can hand you work. Answer in the first person as "
         f"{label}: never describe {label} in the third person. Delegating to "
         f"`{slug}` is delegating to yourself — it starts a background session of "

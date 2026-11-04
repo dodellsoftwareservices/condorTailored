@@ -19,6 +19,7 @@ from condor.fetchers.bots import build_bots_page, fetch_bots_status
 from condor.fsutil import atomic_write_json
 from condor.paths import data_dir
 from config_manager import get_client
+from routines.base import RoutineResult
 
 logger = logging.getLogger(__name__)
 
@@ -144,27 +145,34 @@ async def _realized_pnl(client) -> tuple[float, int]:
 # ---------------------------------------------------------------------------
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     """Compute the sweep, and on a live run place paper ETF orders."""
     chat_id = context._chat_id if hasattr(context, "_chat_id") else None
     hb = await get_client(chat_id, context=context)
     if not hb:
-        return "No server available. Configure servers in /config."
+        return RoutineResult(
+            text="No server available. Configure servers in /config.", failed=True
+        )
 
     weights = _parse_weights(config.weights)
     if not weights:
-        return f"Could not parse weights {config.weights!r}. Use e.g. `VOO:70,VTI:30`."
+        return RoutineResult(
+            text=f"Could not parse weights {config.weights!r}. Use e.g. `VOO:70,VTI:30`.",
+            failed=True,
+        )
 
     try:
         alpaca = AlpacaPaperClient()
     except AlpacaConfigError as e:
-        return f"Alpaca not configured.\n\n{e}"
+        return RoutineResult(text=f"Alpaca not configured.\n\n{e}", failed=True)
 
     try:
         realized, controllers = await _realized_pnl(hb)
         ledger = _load_ledger()
     except (StatusUnavailable, LedgerError) as e:
-        return f"Sweep not run: {e}"
+        return RoutineResult(text=f"Sweep not run: {e}", failed=True)
 
     already = float(ledger.get("swept_pnl_total") or 0.0)
     new_pnl = realized - already
@@ -230,7 +238,7 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
         is_open, nxt = await alpaca.is_market_open()
     except AlpacaAPIError as e:
         await builder.save()
-        return f"Alpaca clock check failed: {e}"
+        return RoutineResult(text=f"Alpaca clock check failed: {e}", failed=True)
 
     if not is_open and not config.ignore_market_hours:
         builder.markdown(
@@ -309,7 +317,10 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
     await builder.save()
 
     if not placed:
-        return f"Sweep of ${sweep:,.2f} failed entirely — {len(failed)} order(s) rejected. Ledger unchanged."
+        return RoutineResult(
+            text=f"Sweep of ${sweep:,.2f} failed entirely — {len(failed)} order(s) rejected. Ledger unchanged.",
+            failed=True,
+        )
     return (
         f"Swept ${sum(alloc[r['Symbol']] for r in placed):,.2f} into "
         + ", ".join(r["Symbol"] for r in placed)

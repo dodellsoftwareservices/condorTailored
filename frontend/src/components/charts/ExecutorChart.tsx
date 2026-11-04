@@ -17,6 +17,7 @@ import { tsToSeconds } from "@/lib/formatters";
 import { geckoIntervalForSpan } from "@/lib/gecko-candles";
 import { candlesQuery } from "@/lib/queryClient";
 import { getThemeColors } from "@/lib/theme-colors";
+import { getLayoutScale, getLayoutViewport, toLayoutRect } from "@/lib/layout-scale";
 
 export interface SnapshotBubble {
   tick: number;
@@ -196,18 +197,20 @@ export function ExecutorChart({
       chartModuleRef.current = mod;
 
       const colors = getThemeColors();
+      const scale = getLayoutScale();
       const chart = mod.createChart(containerRef.current, {
         autoSize: true,
         layout: {
           background: { type: mod.ColorType.Solid, color: colors.bg },
           textColor: colors.text,
+          fontSize: 12 * scale,
         },
         grid: {
           vertLines: { color: colors.grid },
           horzLines: { color: colors.grid },
         },
         crosshair: { mode: mod.CrosshairMode.Normal },
-        timeScale: { timeVisible: true, secondsVisible: false },
+        timeScale: { timeVisible: true, secondsVisible: false, barSpacing: 6 * scale },
         rightPriceScale: { borderVisible: false },
         localization: {
           priceFormatter: (price: number) => {
@@ -304,17 +307,18 @@ export function ExecutorChart({
         });
 
         // Position tooltip on opposite side of cursor (fixed/viewport coords)
-        const containerRect = containerRef.current.getBoundingClientRect();
+        const containerRect = toLayoutRect(containerRef.current.getBoundingClientRect());
+        const viewport = getLayoutViewport();
         const tooltipW = 280;
-        const cursorInRightHalf = param.point.x > containerRect.width / 2;
+        const cursorInRightHalf = param.point.x / scale > containerRect.width / 2;
         let left = cursorInRightHalf
-          ? containerRect.left + param.point.x - tooltipW - 16
-          : containerRect.left + param.point.x + 16;
+          ? containerRect.left + param.point.x / scale - tooltipW - 16
+          : containerRect.left + param.point.x / scale + 16;
         if (left < 4) left = 4;
-        if (left + tooltipW > window.innerWidth - 4) left = window.innerWidth - tooltipW - 4;
-        let top = containerRect.top + param.point.y - 10;
-        if (top + tooltipH > window.innerHeight - 4) {
-          top = window.innerHeight - tooltipH - 4;
+        if (left + tooltipW > viewport.width - 4) left = viewport.width - tooltipW - 4;
+        let top = containerRect.top + param.point.y / scale - 10;
+        if (top + tooltipH > viewport.height - 4) {
+          top = viewport.height - tooltipH - 4;
         }
         if (top < 4) top = 4;
 
@@ -610,7 +614,7 @@ export function ExecutorChart({
       if (children[i]) {
         const el = children[i] as HTMLElement;
         el.style.display = "";
-        el.style.left = `${x}px`;
+        el.style.left = `${x / getLayoutScale()}px`;
       }
     }
     snapshotPositions.current = positions;
@@ -752,8 +756,8 @@ export function ExecutorChart({
                   `;
                   tip.style.display = "block";
 
-                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  const wrapperRect = wrapper.getBoundingClientRect();
+                  const rect = toLayoutRect((e.currentTarget as HTMLElement).getBoundingClientRect());
+                  const wrapperRect = toLayoutRect(wrapper.getBoundingClientRect());
                   const tipW = 320;
                   let left = rect.left - wrapperRect.left + rect.width / 2 - tipW / 2;
                   if (left < 4) left = 4;
@@ -791,10 +795,11 @@ export function ExecutorChart({
       )}
 
       {/* Chart area */}
-      <div ref={wrapperRef} style={{ position: "relative", flex: fullscreen ? 1 : undefined }}>
+      <div ref={wrapperRef} style={{ position: "relative", flex: fullscreen ? 1 : undefined, height: fullscreen ? undefined : height }}>
         <div
           ref={containerRef}
-          style={{ height: fullscreen ? "100%" : height, width: "100%" }}
+          className="chart-canvas-viewport"
+          style={{ position: "absolute", inset: 0 }}
         />
         {/* Executor tooltip overlay — rendered via portal to escape overflow-hidden */}
         {createPortal(

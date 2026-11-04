@@ -22,7 +22,7 @@ export function CurrencySelector() {
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="listbox"
-        className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm hover:bg-[var(--color-surface-hover)] transition-colors"
+        className="flex h-9 items-center gap-1.5 rounded-[10px] border border-[var(--shell-hairline)] bg-[var(--shell-hover)] px-2.5 text-xs hover:bg-[var(--shell-active)] transition-colors"
         title="Display currency"
       >
         <DollarSign className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" />

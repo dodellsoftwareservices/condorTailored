@@ -2,6 +2,7 @@ import { useRef } from "react";
 
 import { MAX_SPLIT_FRAC, MIN_SPLIT_FRAC } from "@/hooks/useDockSplit";
 import { useResizeDrag } from "@/hooks/useResizeDrag";
+import { getLayoutScale } from "@/lib/layout-scale";
 
 /**
  * The seam *between* two open dock sections, and the way to move it.
@@ -49,7 +50,7 @@ export function DockSplitHandle({
 }) {
   const geom = useRef({ top: 0, avail: 1 });
 
-  const { onMouseDown: startDrag, isDragging } = useResizeDrag({
+  const { onMouseDown: startDrag, onPointerDown: startPointerDrag, isDragging } = useResizeDrag({
     axis: "y",
     value: 0, // `compute` is absolute; the drag has no starting size to grow.
     onChange: (px) => setFrac(px / geom.current.avail),
@@ -60,17 +61,15 @@ export function DockSplitHandle({
     lockUserSelect: true,
   });
 
-  const onMouseDown = (e: React.MouseEvent) => {
-    const handle = e.currentTarget;
+  const measure = (handle: Element) => {
     const above = handle.previousElementSibling as HTMLElement | null;
     const below = handle.nextElementSibling as HTMLElement | null;
     if (above && below) {
       geom.current = {
-        top: above.getBoundingClientRect().top,
+        top: above.getBoundingClientRect().top / getLayoutScale(),
         avail: above.offsetHeight + below.offsetHeight,
       };
     }
-    startDrag(e);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -91,7 +90,9 @@ export function DockSplitHandle({
       aria-valuemin={Math.round(MIN_SPLIT_FRAC * 100)}
       aria-valuemax={Math.round(MAX_SPLIT_FRAC * 100)}
       tabIndex={0}
-      onMouseDown={onMouseDown}
+      onMouseDown={(event) => { measure(event.currentTarget); startDrag(event); }}
+      onPointerDown={(event) => { measure(event.currentTarget); startPointerDrag(event); }}
+      style={{ touchAction: "none" }}
       onKeyDown={onKeyDown}
       onDoubleClick={() => setFrac(defaultFrac)}
       title="Drag to resize — double-click to reset"

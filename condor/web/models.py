@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -17,6 +17,8 @@ from condor.fetchers.models import (
 
 
 class LoginResponse(BaseModel):
+    # Legacy field name: a non-secret jti identifying the cookie session.
+    # It cannot authenticate a request and is not a JWT.
     token: str
     user: WebUser
 
@@ -625,6 +627,88 @@ class TickersResponse(BaseModel):
 class RatesResponse(BaseModel):
     # Trading pair -> rate; None when the pair can't be resolved from the tickers.
     rates: dict[str, float | None]
+
+
+# ── Equities ──
+# Research data (condor/equity_market_data.py, Yahoo Finance) and paper
+# execution (condor/alpaca_paper.py, Alpaca). Neither of those two modules
+# has a sibling models file of its own — like them, this is a standalone
+# provider, not a Hummingbot-backend fetcher, so these live beside
+# market.py's own response models rather than under condor.fetchers.models.
+# Provenance is kept to one flat `source` field, not a nested object.
+
+
+class EquitySearchResult(BaseModel):
+    symbol: str
+    name: str = ""
+    exchange: str = ""
+    quote_type: str = ""
+
+
+class EquitySearchResponse(BaseModel):
+    query: str
+    results: list[EquitySearchResult]
+    source: str = "yfinance"
+
+
+class EquityInstrument(BaseModel):
+    symbol: str
+    name: str = ""
+    exchange: str = ""
+    currency: str = "USD"
+    quote_type: str = ""
+    source: str = "yfinance"
+
+
+class EquityQuote(BaseModel):
+    symbol: str
+    bid: float = 0.0
+    ask: float = 0.0
+    bid_size: float = 0.0
+    ask_size: float = 0.0
+    timestamp: float = 0.0  # unix epoch seconds, matching CandleData's convention
+    source: str = "alpaca"
+
+
+class EquityBarsResponse(BaseModel):
+    symbol: str
+    interval: str
+    period: str
+    source: str = "yfinance"
+    bars: list[CandleData]  # identical OHLCV shape; no separate Bar model
+
+
+class EquityAccount(BaseModel):
+    equity: float
+    cash: float
+    buying_power: float
+
+
+class EquityPosition(BaseModel):
+    symbol: str
+    qty: float
+    market_value: float
+    unrealized_pl: float
+
+
+class EquityMarketStatus(BaseModel):
+    is_open: bool
+    next_transition: str = ""
+
+
+class EquityOrderRequest(BaseModel):
+    symbol: str
+    notional: float
+    side: Literal["buy", "sell"] = "buy"
+
+
+class EquityOrderResult(BaseModel):
+    id: str = ""
+    symbol: str
+    side: str
+    notional: float
+    status: str = ""
+    submitted_at: str | None = None
 
 
 # ── Deploy Bot ──

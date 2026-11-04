@@ -1,27 +1,11 @@
-// Single source of truth for the JWT auth surface: storage key, header builder
-// and a low-level authenticated fetch. Anything that talks to the API should go
-// through `apiFetch` (lib/api.ts) for JSON; use `authFetch` for FormData uploads
-// or binary/blob responses where forcing `Content-Type: application/json` is wrong.
+// A browser session now rides on the HttpOnly `condor_session` cookie (set by
+// `token-login`/`local-login`), which `fetch` attaches to same-origin requests
+// on its own — there is no token for this module to read or inject. It stays
+// as the shared low-level fetch anyway: FormData uploads (transcribe) and blob
+// responses (authenticated images) go through `authFetch` for the same reason
+// JSON calls go through `apiFetch` (lib/api.ts) — one place for the next auth
+// transport change to land, instead of every call site.
 
-export const TOKEN_KEY = "condor_token";
-
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-/** Authorization header for the current JWT, or `{}` if not logged in. */
-export function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-/**
- * Low-level fetch that injects the auth header without forcing a Content-Type.
- * Use for FormData uploads (transcribe) or blob responses (authenticated images).
- */
 export function authFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(path, {
-    ...init,
-    headers: { ...authHeaders(), ...(init?.headers as Record<string, string>) },
-  });
+  return fetch(path, init);
 }

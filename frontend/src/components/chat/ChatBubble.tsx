@@ -111,7 +111,7 @@ export function ChatBubble() {
 
   // Hooks above, bail-out below: `/agents/:slug` keeps the bubble, and so does
   // `/fleet`; the home is the only surface that loses it.
-  if (pathname === "/") return null;
+  if (pathname === "/agents") return null;
 
   const toggle = (next: boolean) => {
     setOpen(next);
@@ -135,7 +135,7 @@ export function ChatBubble() {
     return (
       <button
         onClick={() => toggle(true)}
-        className="fixed bottom-4 right-[calc(1rem_+_var(--guide-w,0px))] z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary)] text-[var(--on-primary)] shadow-lg transition-opacity hover:opacity-90"
+        className="quick-chat-launcher fixed bottom-4 right-[calc(1rem_+_var(--guide-w,0px))] z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary)] text-[var(--on-primary)] shadow-lg transition-opacity hover:opacity-90"
         title="Ask about this page"
         aria-label="Open quick chat"
       >
@@ -150,7 +150,7 @@ export function ChatBubble() {
   const boundSummary = slug ? agents.find((a) => a.slug === slug) : undefined;
   const name = slug
     ? slot?.info.label || boundSummary?.name || slug
-    : agents.find((a) => a.slug === CHAT_SLUG)?.name || "Condor";
+    : agents.find((a) => a.slug === CHAT_SLUG)?.name || "Griffin";
 
   const ask = (text: string, files?: File[]) => {
     let id = slotId;
@@ -180,11 +180,11 @@ export function ChatBubble() {
     // A page expanded out of the chat's side panel knows the way back to it
     // (`PaneReturnState`), so the panel comes back open on what was showing.
     const returnTo = (locationState as { returnTo?: unknown } | null)?.returnTo;
-    navigate(typeof returnTo === "string" && returnTo.startsWith("/") ? returnTo : "/");
+    navigate(typeof returnTo === "string" && returnTo.startsWith("/") ? returnTo : "/agents");
   };
 
   return (
-    <div className="fixed inset-x-2 bottom-2 top-16 z-40 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-2xl sm:inset-x-auto sm:top-auto sm:bottom-4 sm:right-[calc(1rem_+_var(--guide-w,0px))] sm:h-[min(560px,calc(100vh-7rem))] sm:w-[380px]">
+    <div className="quick-chat-panel fixed inset-x-2 bottom-2 top-16 z-40 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-2xl sm:inset-x-auto sm:top-auto sm:bottom-4 sm:right-[calc(1rem_+_var(--guide-w,0px))] sm:h-[min(560px,calc(var(--app-viewport-height)-7rem))] sm:w-[380px]">
       {/* Header: who answers, what is being shared, and the way out. */}
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
         <span className="min-w-0 truncate text-sm font-medium text-[var(--color-text)]">

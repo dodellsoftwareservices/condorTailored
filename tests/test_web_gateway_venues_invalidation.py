@@ -200,7 +200,7 @@ def test_status_invalidates_venues_only_on_the_false_to_true_transition(env):
     assert sds.invalidated == [(SERVER, ServerDataType.VENUES)]  # unchanged
 
 
-def test_status_error_is_treated_as_not_running_for_the_transition(env):
+def test_status_error_is_reported_and_resets_the_transition(env):
     """A transient status-fetch failure must not get skipped over as if the
     gateway were still up, or the next real transition would be missed."""
     app, client, sds = env
@@ -208,9 +208,46 @@ def test_status_error_is_treated_as_not_running_for_the_transition(env):
     http = as_user(app, TRADER)
 
     async def raising_get_status():
-        raise RuntimeError("upstream unreachable")
+        raise OSError("cannot reach http://private-api.internal:8000")
 
     client.gateway.get_status = raising_get_status
     resp = http.get("/settings/gateway/status", params=P)
-    assert resp.json() == {"running": False, "info": None}
+    assert resp.status_code == 502
+    assert resp.json() == {
+        "detail": "Failed to fetch gateway status: the trading API is unreachable"
+    }
+    assert "private-api" not in resp.text
+    assert settings_routes._gateway_was_running[SERVER] is False
+
+    client.gateway.status_sequence = [{"running": True}]
+    # Bind to the original fake again so the recovered status uses its sequence.
+    client.gateway.get_status = FakeGateway.get_status.__get__(client.gateway)
+    assert http.get("/settings/gateway/status", params=P).json()["running"] is True
+    assert sds.invalidated == [(SERVER, ServerDataType.VENUES)]
+
+
+@pytest.mark.parametrize(
+    "payload", [None, {}, {"running": "false"}, {"success": False}]
+)
+def test_invalid_status_is_not_reported_as_stopped(env, payload):
+    app, client, _ = env
+    client.gateway.status_sequence = [payload]
+    resp = as_user(app, TRADER).get("/settings/gateway/status", params=P)
+    assert resp.status_code == 502
+    assert "invalid status response" in resp.json()["detail"]
+
+
+def test_client_acquisition_failure_resets_the_transition(env, monkeypatch):
+    from fastapi import HTTPException
+
+    app, _, _ = env
+    settings_routes._gateway_was_running[SERVER] = True
+
+    async def unavailable(*args):
+        raise HTTPException(status_code=502, detail="Cannot connect to server")
+
+    monkeypatch.setattr(settings_routes, "_get_client", unavailable)
+    response = as_user(app, TRADER).get("/settings/gateway/status", params=P)
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Cannot connect to server"
     assert settings_routes._gateway_was_running[SERVER] is False

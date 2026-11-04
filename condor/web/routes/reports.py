@@ -117,7 +117,7 @@ async def get_report_html(
     so they are served from behind ``get_current_user`` like every other reports
     surface — there is no unauthenticated static mount for them (SEC-112) — and,
     since SEC-196, only to the report's recorded owner or an admin. The
-    client fetches this with an ``Authorization`` header and hands the result to
+    browser fetches this with its session cookie and hands the result to
     a sandboxed iframe via ``srcDoc``, which is why the body is returned inline
     rather than as a file the browser navigates to.
 

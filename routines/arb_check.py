@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
 
 from config_manager import get_client
+from routines.base import RoutineResult
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,8 @@ class Config(BaseModel):
         default="SOL-USDC", description="Trading pair (e.g. SOL-USDC)"
     )
     exchanges: str = Field(
-        default="binance,kucoin",
-        description="Comma-separated exchanges (e.g. binance,kucoin,htx,gate_io)",
+        default="lighter_perpetual,kucoin",
+        description="Comma-separated exchanges (e.g. lighter_perpetual,kucoin,htx,gate_io)",
     )
     amount: float = Field(default=1.0, description="Amount to quote (in base asset)")
     ob_depth: int = Field(default=20, description="Order book depth (levels)")
@@ -443,18 +444,23 @@ def _build_ob_chart(exchange_data: list[tuple[str, list, list]], pair: str):
     return fig
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     """Compare order books across multiple CEX exchanges."""
     chat_id = context._chat_id if hasattr(context, "_chat_id") else None
     client = await get_client(chat_id, context=context)
 
     if not client:
-        return "No server available. Configure servers in /config."
+        return RoutineResult(
+            text="No server available. Configure servers in /config.", failed=True
+        )
 
     exchanges = _parse_exchanges(config.exchanges)
     if len(exchanges) < 2:
-        return (
-            "Need at least 2 exchanges (comma-separated). Example: binance,kucoin,htx"
+        return RoutineResult(
+            text="Need at least 2 exchanges (comma-separated). Example: binance,kucoin,htx",
+            failed=True,
         )
 
     pair = config.trading_pair
@@ -499,7 +505,7 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
             msg += "\n\nFiltered out:\n" + "\n".join(
                 f"  {ex.upper()}: {reason}" for ex, reason in invalid_exchanges
             )
-        return msg
+        return RoutineResult(text=msg, failed=True)
 
     # Build text output (sorted by spread)
     lines = [

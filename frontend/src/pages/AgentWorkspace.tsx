@@ -141,7 +141,7 @@ export function AgentWorkspace() {
 
   if (error && !agent) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="flex min-h-[calc(var(--app-viewport-height)*0.6)] items-center justify-center">
         <div className="max-w-sm rounded-lg border border-red-500/30 bg-[var(--color-surface)] p-8 text-center">
           <AlertCircle className="mx-auto mb-3 h-10 w-10 text-[var(--color-red)]" />
           <h2 className="mb-1 text-lg font-semibold">Failed to Load Agent</h2>

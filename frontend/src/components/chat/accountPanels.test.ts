@@ -49,7 +49,9 @@ describe("parseDesk", () => {
 
 describe("the fleet's address", () => {
   it("names both the pane and the section", () => {
-    const params = new URLSearchParams(EXECUTION_PATH.slice(2));
+    const address = new URL(EXECUTION_PATH, "http://localhost");
+    expect(address.pathname).toBe("/agents");
+    const params = address.searchParams;
     // One without the other is half an answer: the pane would open on the
     // wrong section, or the section would be recorded with nothing on screen.
     expect(params.get(PANEL_PARAM)).toBe("desk");

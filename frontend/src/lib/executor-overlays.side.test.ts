@@ -15,7 +15,7 @@
  * `computeMultiOverlays`, for every overlay type that reads a side.
  *
  * jsdom loads no stylesheet, so `getThemeColors()` resolves to its documented
- * fallbacks -- `#22c55e` up, `#ef4444` down -- which is what makes the marker
+ * fallbacks -- `#22c55e` up, `#f28b96` down -- which is what makes the marker
  * colours assertable here.
  */
 
@@ -25,7 +25,7 @@ import type { ExecutorInfo } from "./api";
 import { computeMultiOverlays } from "./executor-overlays";
 
 const UP = "#22c55e";
-const DOWN = "#ef4444";
+const DOWN = "#f28b96";
 
 function executor(patch: Partial<ExecutorInfo> = {}): ExecutorInfo {
   return {

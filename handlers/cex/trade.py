@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 
 from condor.fetchers.market_data import fetch_current_price
 from condor.preferences import (
+    DEFAULT_CLOB_CONNECTOR,
     get_all_enabled_networks,
     get_clob_account,
     get_clob_order_defaults,
@@ -272,7 +273,7 @@ def _build_trade_keyboard(
     - Row 5 (spot): quote | execute
     - Row 6: orders | positions | close
     """
-    connector = params.get("connector", "binance_perpetual")
+    connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
 
     keyboard = [
         # Row 1: Connector (full width)
@@ -374,7 +375,7 @@ def _build_trade_menu_text(
     server_status: str = "online",
 ) -> str:
     """Build the trade menu text content (swap.py style)"""
-    connector = params.get("connector", "binance_perpetual")
+    connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
     trading_pair = params.get("trading_pair", "BTC-USDT")
 
     # Parse trading pair
@@ -551,7 +552,7 @@ async def show_trade_menu(
     from handlers.bots._shared import resolve_accessible_server_or_none
 
     params = context.user_data.get("trade_params", {})
-    connector = params.get("connector", "binance_perpetual")
+    connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
     trading_pair = params.get("trading_pair", "BTC-USDT")
     account = get_clob_account(context.user_data)
     is_perpetual = _is_perpetual_connector(connector)
@@ -676,7 +677,7 @@ async def _update_trade_message(context: ContextTypes.DEFAULT_TYPE, message) -> 
         return
 
     params = context.user_data.get("trade_params", {})
-    connector = params.get("connector", "binance_perpetual")
+    connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
     trading_pair = params.get("trading_pair", "BTC-USDT")
     account = get_clob_account(context.user_data)
     is_perpetual = _is_perpetual_connector(connector)
@@ -758,7 +759,7 @@ async def _fetch_trade_data_background(
 ) -> None:
     """Fetch trade data in background and update message when done (like swap.py)"""
     logger.info(f"Starting background fetch for trade data...")
-    connector = params.get("connector", "binance_perpetual")
+    connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
     trading_pair = params.get("trading_pair", "BTC-USDT")
     account = get_clob_account(context.user_data)
     is_perpetual = _is_perpetual_connector(connector)
@@ -1392,7 +1393,7 @@ async def handle_trade_set_leverage(
 ) -> None:
     """Prompt for leverage input - edits message"""
     params = context.user_data.get("trade_params", {})
-    connector = params.get("connector", "binance_perpetual")
+    connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
     trading_pair = params.get("trading_pair", "BTC-USDT")
 
     current_lev = context.user_data.get(
@@ -1424,7 +1425,7 @@ async def handle_trade_toggle_pos_mode(
 ) -> None:
     """Toggle position mode between HEDGE and ONEWAY directly"""
     params = context.user_data.get("trade_params", {})
-    connector = params.get("connector", "binance_perpetual")
+    connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
     account = get_clob_account(context.user_data)
 
     try:
@@ -1593,7 +1594,7 @@ async def _update_trade_menu_after_input(
 
     if msg_id and chat_id:
         params = context.user_data.get("trade_params", {})
-        connector = params.get("connector", "binance_perpetual")
+        connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
         trading_pair = params.get("trading_pair", "BTC-USDT")
         account = get_clob_account(context.user_data)
         is_perpetual = _is_perpetual_connector(connector)
@@ -1693,7 +1694,7 @@ async def process_trade(
 
         # Get current connector from params
         params = context.user_data.get("trade_params", {})
-        connector = params.get("connector", "binance_perpetual")
+        connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
         account = get_clob_account(context.user_data)
 
         trading_pair = parts[0].upper()
@@ -1846,7 +1847,7 @@ async def process_trade_set_pair(
     """Process trading pair input with validation against available markets"""
     try:
         params = context.user_data.get("trade_params", {})
-        connector = params.get("connector", "binance_perpetual")
+        connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
         pair_input = user_input.strip().upper().replace("_", "-").replace("/", "-")
 
         chat_id = update.effective_chat.id
@@ -2004,7 +2005,7 @@ async def process_trade_set_leverage(
             raise ValueError("Leverage must be positive")
 
         params = context.user_data.get("trade_params", {})
-        connector = params.get("connector", "binance_perpetual")
+        connector = params.get("connector", DEFAULT_CLOB_CONNECTOR)
         trading_pair = params.get("trading_pair", "BTC-USDT")
         account = get_clob_account(context.user_data)
 

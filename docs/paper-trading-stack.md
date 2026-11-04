@@ -1,5 +1,9 @@
 # Paper trading stack — Kraken, Binance testnet, Alpaca
 
+For the OpenBB / Paper Markets rollout controls, local monitoring endpoint,
+offline regression suite, and opt-in paper smoke test, see
+[equity-integration-rollout.md](equity-integration-rollout.md).
+
 What is installed, what each piece does, and what is deliberately not built.
 Supersedes the `SETUP.md` that came with the first drop of these files, two of
 whose steps were wrong (see "Not applied").

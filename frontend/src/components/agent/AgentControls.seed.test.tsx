@@ -79,7 +79,7 @@ async function settle() {
 
 function checkbox(): HTMLInputElement {
   const box = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
-  expect(box?.closest("label")?.textContent).toContain("Resume after Condor restarts");
+  expect(box?.closest("label")?.textContent).toContain("Resume after Griffin restarts");
   return box!;
 }
 

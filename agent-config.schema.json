@@ -59,6 +59,20 @@
           "minimum": 1,
           "title": "Assumedrequestspertick",
           "type": "integer"
+        },
+        "dailyCostCapUsd": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UTC daily spend threshold across direct model providers. With a cap, requests are serialized and output is capped at 4096 tokens. One response can overshoot; unknown pricing pauses requests. ACP subscription clients are refused. Null disables the dollar limit.",
+          "title": "Dailycostcapusd"
         }
       },
       "title": "Budget",
@@ -153,6 +167,16 @@
     },
     "thinking": {
       "$ref": "#/$defs/Thinking"
+    },
+    "openrouterProviderOnly": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Openrouterprovideronly",
+      "type": "object"
     },
     "maxOutputTokens": {
       "anyOf": [

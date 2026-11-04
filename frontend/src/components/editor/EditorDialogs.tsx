@@ -241,7 +241,7 @@ export function UploadDialog({
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed inset-4 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[560px] md:max-h-[80vh] bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl shadow-xl z-50 flex flex-col">
+      <div className="fixed inset-4 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[560px] md:max-h-[calc(var(--app-viewport-height)*0.8)] bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl shadow-xl z-50 flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
           <h2 className="text-sm font-semibold">Upload</h2>
           <button
@@ -427,7 +427,7 @@ export function CloneConfigDialog({
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed inset-4 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[560px] md:max-h-[80vh] bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl shadow-xl z-50 flex flex-col">
+      <div className="fixed inset-4 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[560px] md:max-h-[calc(var(--app-viewport-height)*0.8)] bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl shadow-xl z-50 flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
           <div>
             <h2 className="text-sm font-semibold">Clone Config</h2>
@@ -627,7 +627,7 @@ export function NewConfigDialog({
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed inset-4 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[680px] md:max-h-[80vh] bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl shadow-xl z-50 flex flex-col">
+      <div className="fixed inset-4 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[680px] md:max-h-[calc(var(--app-viewport-height)*0.8)] bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl shadow-xl z-50 flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
           <h2 className="text-sm font-semibold">New Config</h2>
           <button

@@ -7,25 +7,38 @@ import type {
 import { controllerKey } from "@/lib/controller-identity";
 import { collectCursorPages, type WalkOutcome } from "@/lib/history-pagination";
 
-import { authFetch, authHeaders } from "./auth-token";
+import { authFetch } from "./auth-token";
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...authHeaders(),
     ...(init?.headers as Record<string, string>),
   };
   const res = await fetch(path, { ...init, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
+    // `detail` is usually a string, but the equities routes (and the
+    // rollout gate in front of them) send {code, message} instead, so a
+    // caller can branch on a stable code rather than parsing prose. Both
+    // shapes are unwrapped here, once, rather than at every call site — a
+    // bare `new Error(detail)` on an object `detail` would stringify to the
+    // literal text "[object Object]" instead of the real message.
+    const detail: unknown = err.detail;
+    const detailObject =
+      detail && typeof detail === "object" ? (detail as Record<string, unknown>) : null;
+    const message = detailObject ? detailObject.message : detail;
     // The status rides along on the Error so a caller can tell apart failures that
     // read the same as a message but call for different things from the operator —
     // a 501 from the API-settings routes means "this server is older than this
-    // panel, upgrade it", not "something is broken". `message` is unchanged, so
-    // every existing caller reads exactly what it read before.
-    throw Object.assign(new Error(err.detail || `Request failed: ${res.status}`), {
-      status: res.status,
-    });
+    // panel, upgrade it", not "something is broken". `message` is unchanged for a
+    // string `detail`, so every pre-existing caller reads exactly what it read before.
+    throw Object.assign(
+      new Error((typeof message === "string" && message) || `Request failed: ${res.status}`),
+      {
+        status: res.status,
+        code: typeof detailObject?.code === "string" ? detailObject.code : undefined,
+      },
+    );
   }
   return res.json();
 }
@@ -34,6 +47,17 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 export function errorStatus(error: unknown): number | undefined {
   const status = (error as { status?: unknown } | null)?.status;
   return typeof status === "number" ? status : undefined;
+}
+
+/**
+ * The machine-readable error code of a failed `apiFetch`, when the thrown
+ * value carries one — the equities routes' `{code, message}` detail shape.
+ * Mirrors `errorStatus`; most existing routes send a bare string `detail`
+ * and have no code, so this is `undefined` for them, same as today.
+ */
+export function errorCode(error: unknown): string | undefined {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : undefined;
 }
 
 /**
@@ -387,6 +411,66 @@ export interface ConnectorBalance {
   note?: string | null;
 }
 
+/** The simulated Kraken account: Decimal strings, as the sim exchange serialises them. */
+export interface SimPortfolio {
+  equity: string;
+  cash: string;
+  start_cash: string;
+  total_return_pct: string;
+  gross_exposure: string;
+  positions: { asset: string; qty: string; side?: "long" | "short"; avg_cost?: string; price?: string; value?: string; unrealized_pnl?: string }[];
+  open_orders: number;
+  volume_30d: string;
+  /** Futures account only. */
+  leverage?: string;
+  funding_paid?: string;
+  liquidations?: number;
+}
+
+export interface SimMmStatus {
+  running: boolean;
+  configured: boolean;
+  halted?: string;
+  cycles?: number;
+  quotes_placed?: number;
+  quotes_cancelled?: number;
+  maker_fills?: number;
+  volume?: string;
+  fees_paid?: string;
+  net_pnl?: string | null;
+  last_error?: string;
+  pairs?: Record<string, { mid: string; half_spread_bps: string; maker_fee_bps: string; bid: string | null; ask: string | null; inventory: string }>;
+}
+
+export interface SimCosts {
+  net_pnl_after_all_costs: string;
+  equity_pnl: string;
+  costs: {
+    exchange_fees: string;
+    funding_paid?: string;
+    slippage_vs_arrival_mid: string;
+    llm_requests: number;
+    llm_cost: string;
+    fixed_running_cost: string;
+    total_execution_and_operating: string;
+  };
+  traded_volume: string;
+  fills: { taker: number; maker: number };
+  recent_executed_orders?: {
+    order_id: string;
+    client_order_id: string;
+    pair: string;
+    side: "buy" | "sell";
+    last_fill_ts: number;
+    fill_count: number;
+    qty: string;
+    notional: string;
+    fee: string;
+    realized_pnl: string;
+    calibration: boolean;
+  }[];
+}
+
 export interface PortfolioResponse {
   server: string;
   connectors: ConnectorBalance[];
@@ -404,6 +488,126 @@ export interface PortfolioHistoryResponse {
   points: PortfolioHistoryPoint[];
   interval: string;
   top_tokens?: string[];
+}
+
+export interface DashboardAccount {
+  id: string;
+  label: string;
+  status: "online" | "unavailable" | "partial";
+  starting_capital: number | null;
+  equity: number | null;
+  cash: number | null;
+  deployed: number | null;
+  pnl: number | null;
+  roi_pct: number | null;
+  order_cap?: number;
+  volume: number | null;
+  fees: number | null;
+  batting_average: number | null;
+  closed_trades: number | null;
+  wins: number | null;
+  losses: number | null;
+  breakeven: number | null;
+  profit_factor: number | null;
+  sharpe: number | null;
+  daily_observations: number;
+  max_drawdown_pct: number | null;
+  outcomes_complete: boolean;
+  points: { timestamp: number; equity: number }[];
+  notes: string[];
+}
+
+export interface DashboardResponse {
+  as_of: number;
+  range: string;
+  mode: "paper";
+  accounts: DashboardAccount[];
+  summary: DashboardAccount;
+}
+
+// ── Equities (condor/web/models.py's own "── Equities ──" section) ──
+
+export interface EquitySearchResult {
+  symbol: string;
+  name: string;
+  exchange: string;
+  quote_type: string;
+}
+
+export interface EquitySearchResponse {
+  query: string;
+  results: EquitySearchResult[];
+  source: string;
+}
+
+export interface EquityRolloutStatus {
+  markets_enabled: boolean;
+  paper_submissions_enabled: boolean;
+}
+
+export interface EquityInstrument {
+  symbol: string;
+  name: string;
+  exchange: string;
+  currency: string;
+  quote_type: string;
+  source: string;
+}
+
+export interface EquityQuote {
+  symbol: string;
+  bid: number;
+  ask: number;
+  bid_size: number;
+  ask_size: number;
+  /** Unix seconds. Epoch (0) means the provider's timestamp could not be
+   * read — reported as maximally stale, never silently as "just now". */
+  timestamp: number;
+  source: string;
+}
+
+export interface EquityBar {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface EquityBarsResponse {
+  symbol: string;
+  interval: string;
+  period: string;
+  source: string;
+  bars: EquityBar[];
+}
+
+export interface EquityAccount {
+  equity: number;
+  cash: number;
+  buying_power: number;
+}
+
+export interface EquityPosition {
+  symbol: string;
+  qty: number;
+  market_value: number;
+  unrealized_pl: number;
+}
+
+export interface EquityMarketStatus {
+  is_open: boolean;
+  next_transition: string;
+}
+
+export interface EquityOrderResult {
+  id: string;
+  symbol: string;
+  side: "buy" | "sell";
+  notional: number;
+  status: string;
+  submitted_at: string | null;
 }
 
 export interface BotInfo {
@@ -3017,6 +3221,8 @@ export interface PendingConfirmation {
 }
 
 export const api = {
+  getPaperDashboard: (range: string, signal?: AbortSignal) =>
+    apiFetch<DashboardResponse>(`/api/v1/dashboard/paper?range=${encodeURIComponent(range)}`, { signal }),
   getServers: () => apiFetch<ServerInfo[]>("/api/v1/servers"),
 
   /** Build identity — shown to the user when they file an issue. */
@@ -3029,6 +3235,14 @@ export const api = {
     apiFetch<PortfolioResponse>(
       `/api/v1/servers/${encodeURIComponent(server)}/portfolio${refresh ? "?refresh=true" : ""}`,
     ),
+
+  getSimPortfolio: () => apiFetch<SimPortfolio>("/api/v1/sim/kraken/portfolio"),
+  getSimCosts: () => apiFetch<SimCosts>("/api/v1/sim/kraken/costs"),
+  getSimMmPortfolio: () => apiFetch<SimPortfolio>("/api/v1/sim/kraken/mm/portfolio"),
+  getSimMmCosts: () => apiFetch<SimCosts>("/api/v1/sim/kraken/mm/costs"),
+  getSimMmStatus: () => apiFetch<SimMmStatus>("/api/v1/sim/kraken/mm"),
+  getSimFutPortfolio: () => apiFetch<SimPortfolio>("/api/v1/sim/kraken/fut/portfolio"),
+  getSimFutCosts: () => apiFetch<SimCosts>("/api/v1/sim/kraken/fut/costs"),
 
   getPortfolioHistory: (server: string, range = "1D", breakdown = false) =>
     apiFetch<PortfolioHistoryResponse>(
@@ -4349,9 +4563,9 @@ export const api = {
   /**
    * A report's rendered HTML body.
    *
-   * Report bodies are authenticated (SEC-112), and an iframe `src` cannot carry
-   * an Authorization header — so callers fetch the HTML here and hand it to the
-   * iframe as `srcDoc`, keeping the token in a header instead of the URL.
+   * Report bodies are authenticated by the session cookie (SEC-112). Fetch the
+   * HTML here and hand it to a sandboxed iframe as `srcDoc`; credentials never
+   * belong in the report URL.
    *
    * A chart report does not carry plotly.js; it references the one shared copy
    * at `/api/v1/reports/assets/` (PERF-267), which a `srcdoc` frame resolves
@@ -5001,4 +5215,45 @@ export const api = {
       "/api/v1/push/unsubscribe",
       { method: "POST", body: JSON.stringify({ endpoint }) },
     ),
+
+  // ── Equities ──
+  // Research (search/instrument/quote/bars/rollout-status) is open to any
+  // approved user. Account, positions, market status and order submission
+  // are admin-only on the backend (condor/web/routes/paper_equities.py) —
+  // one shared Alpaca paper account for the install, not per-user.
+
+  searchEquities: (q: string, limit = 8) =>
+    apiFetch<EquitySearchResponse>(`/api/v1/equities/search${query({ q, limit })}`),
+
+  getEquityRolloutStatus: () =>
+    apiFetch<EquityRolloutStatus>("/api/v1/equities/rollout-status"),
+
+  getEquityInstrument: (symbol: string) =>
+    apiFetch<EquityInstrument>(`/api/v1/equities/${encodeURIComponent(symbol)}`),
+
+  /** The execution-grade quote, from Alpaca — not the research feed. */
+  getEquityQuote: (symbol: string) =>
+    apiFetch<EquityQuote>(`/api/v1/equities/${encodeURIComponent(symbol)}/quote`),
+
+  getEquityBars: (symbol: string, period = "3mo", interval = "1d") =>
+    apiFetch<EquityBarsResponse>(
+      `/api/v1/equities/${encodeURIComponent(symbol)}/bars${query({ period, interval })}`,
+    ),
+
+  getEquityAccount: () => apiFetch<EquityAccount>("/api/v1/paper/equities/account"),
+
+  getEquityPositions: () =>
+    apiFetch<EquityPosition[]>("/api/v1/paper/equities/positions"),
+
+  getEquityMarketStatus: () =>
+    apiFetch<EquityMarketStatus>("/api/v1/paper/equities/market-status"),
+
+  /** One paper market order, notional only. Rejected server-side above the
+   * per-order cap (EQUITY_MAX_ORDER_NOTIONAL, $10,000 by default) before it
+   * ever reaches Alpaca. */
+  submitEquityOrder: (body: { symbol: string; notional: number; side: "buy" | "sell" }) =>
+    apiFetch<EquityOrderResult>("/api/v1/paper/equities/orders", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

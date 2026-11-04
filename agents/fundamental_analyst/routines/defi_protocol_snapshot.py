@@ -19,7 +19,7 @@ class Config(BaseModel):
 
     protocol: str = Field(
         default="uniswap-v3",
-        description="DefiLlama protocol slug or brand name (e.g. 'uniswap', 'aave', 'hyperliquid')",
+        description="DefiLlama protocol slug or brand name (e.g. 'uniswap', 'aave', 'jupiter')",
     )
     include_competitors: bool = Field(
         default=True,
@@ -200,7 +200,7 @@ async def _find_gecko_id(
             return parent["gecko_id"]
         return max(candidates, key=lambda x: x.get("tvl") or 0)["gecko_id"]
 
-    # Fall back to the raw user input as the gecko_id (works for e.g. "hyperliquid")
+    # Fall back to the raw user input as the gecko_id (works for e.g. "jupiter")
     inp = user_input.lower().strip()
     if inp and " " not in inp:
         return inp

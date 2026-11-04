@@ -230,8 +230,8 @@ export function buildDiagnostics(opts: {
 
   lines.push(
     env
-      ? `Condor ${env.version} (${env.branch}) · Python ${env.python} · ${env.os}/${env.arch}${env.in_docker ? " · docker" : ""}`
-      : "Condor version: unavailable",
+      ? `Griffin ${env.version} (${env.branch}) · Python ${env.python} · ${env.os}/${env.arch}${env.in_docker ? " · docker" : ""}`
+      : "Griffin version: unavailable",
   );
   // Which process, beside which commit (FEAT-136). A report that says the
   // config was edited and nothing happened is answered by a start time older

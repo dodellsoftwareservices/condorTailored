@@ -7,6 +7,7 @@ import pytest
 
 from condor.reports.builder import ReportBuilder
 from routines import triangular_arb as T
+from routines.base import normalize_result
 
 # A synthetic venue: USD, BTC, ETH. Listed orientation mirrors a real one:
 # BTC-USD, ETH-USD, ETH-BTC.
@@ -174,7 +175,8 @@ def run_routine(monkeypatch, client, **cfg):
         return client
 
     monkeypatch.setattr(T, "get_client", get_client)
-    return asyncio.run(T.run(T.Config(**cfg), SimpleNamespace(_chat_id=1)))
+    raw = asyncio.run(T.run(T.Config(**cfg), SimpleNamespace(_chat_id=1)))
+    return normalize_result(raw).text
 
 
 TICKERS = {
@@ -212,6 +214,18 @@ def test_a_refused_feed_reports_the_api_error_not_a_guess(monkeypatch, report_sp
     out = run_routine(monkeypatch, client, connector="kraken")
     assert "HTTP 502: upstream down" in out
     assert "geo" not in out.lower()
+
+
+def test_a_refused_feed_reports_as_failed_not_ok(monkeypatch, report_spy):
+    """The caught MarketsUnavailable must not report ✅ through the executor (finding #10)."""
+    client = FlatBookClient({}, ticker_error=RuntimeError("HTTP 502: upstream down"))
+
+    async def get_client(chat_id, context=None):
+        return client
+
+    monkeypatch.setattr(T, "get_client", get_client)
+    raw = asyncio.run(T.run(T.Config(connector="kraken"), SimpleNamespace(_chat_id=1)))
+    assert normalize_result(raw).failed is True
 
 
 def test_unmappable_test_venue_is_named_in_the_error(monkeypatch, report_spy):

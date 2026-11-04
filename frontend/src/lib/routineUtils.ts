@@ -91,7 +91,7 @@ export function formatSlug(slug: string): string {
 /** What a scope is called in a picker. */
 export function formatScope(scope: RoutineScope): string {
   if (scope === "all") return "All routines";
-  if (scope === "condor" || scope === "routine") return "Condor";
+  if (scope === "condor" || scope === "routine") return "Griffin";
   if (scope === "agent") return "All agents";
   return formatSlug(scope);
 }

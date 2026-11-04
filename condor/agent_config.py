@@ -36,6 +36,8 @@ nothing until a file is dropped in.
                           reasoning-token budget), never both; ``exclude`` hides
                           the reasoning from the response. OpenRouter models
                           only. ``$CONDOR_THINKING_EFFORT``.
+``openrouterProviderOnly`` Model ID to allowed OpenRouter endpoint slugs. Applied
+                          only when that exact model is used.
 ``maxOutputTokens``       Cap on one response, reasoning included.
 ``tickTimeoutSec``        Wall-clock budget of one loop tick, unless the loop's
                           own config sets ``tick_timeout_sec``.
@@ -158,6 +160,19 @@ class Budget(_Model):
     pacing: bool = True
     # What a tick is assumed to cost until the loop has measured its own.
     assumed_requests_per_tick: int = Field(default=8, ge=1)
+    # ``None`` (the default) leaves spend uncapped — every limit above is a
+    # *request count*, which is moot on a free model and does nothing once
+    # this is pointed at a paid one (system review 2026-10-31, finding #21).
+    # Checked before each provider request. With a dollar cap, requests are
+    # serialized across processes and output is limited to 4096 tokens; actual
+    # prices are recorded after each response. One response may overshoot the
+    # threshold. Unknown pricing pauses admission until reset. ACP subscription
+    # clients cannot be metered and are refused while a dollar cap is enabled.
+    daily_cost_cap_usd: float | None = Field(
+        default=None,
+        gt=0,
+        description="UTC daily spend threshold across direct model providers. With a cap, requests are serialized and output is capped at 4096 tokens. One response can overshoot; unknown pricing pauses requests. ACP subscription clients are refused. Null disables the dollar limit.",
+    )
 
     @model_validator(mode="after")
     def _reserve_fits(self) -> "Budget":
@@ -185,6 +200,7 @@ class AgentRuntimeConfig(_Model):
     approval_policy: Literal["always", "dangerous-only", "never"] = "always"
     always_allow: tuple[str, ...] = ()
     thinking: Thinking = Field(default_factory=Thinking)
+    openrouter_provider_only: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     max_output_tokens: int | None = Field(default=None, ge=1)
     tick_timeout_sec: int | None = Field(default=None, ge=30)
     budget: Budget = Field(default_factory=Budget)

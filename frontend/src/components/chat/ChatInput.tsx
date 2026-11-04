@@ -72,7 +72,7 @@ export function ChatInput({
   isStreaming,
   onAbort,
   autoFocus,
-  placeholder = "Ask Condor...",
+  placeholder = "Ask Griffin...",
   leading,
   draftKey,
 }: ChatInputProps) {
@@ -373,7 +373,7 @@ export function ChatInput({
     // above it, so the chat reads as one surface with a field at its foot. The
     // deck it used to sit on was a hairline and a strip of `--color-surface`
     // only as wide as the text column — a slab laid across the bottom of the
-    // pane rather than the floor of it. Only the ring is gold, and only on
+    // pane rather than the floor of it. Only the ring is accented, and only on
     // focus.
     <div>
       {voiceError && <p className="mb-2 text-xs text-red-400">{voiceError}</p>}

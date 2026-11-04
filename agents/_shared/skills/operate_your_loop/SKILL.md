@@ -199,7 +199,7 @@ confirmation still in flight, and anything past the alert is stuck.
    ```
 
    This asks the **server** to read the chain and record the swap's real outcome. It
-   signs nothing, moves nothing, and Condor records no state of its own — the server's
+   signs nothing, moves nothing, and Griffin records no state of its own — the server's
    answer is the swap's state. A server too old to offer the route says so plainly and
    nothing changes; that is a capability answer, not an outage, and retrying it will not
    help.

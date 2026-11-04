@@ -41,7 +41,7 @@ COMPACT_CONTEXT_TEMPLATE = (
 _PAGE_CONTEXT = (
     "WHAT THE USER IS LOOKING AT (web dashboard):\n"
     "- A turn typed in the dashboard may open with a bracketed block headed\n"
-    '  "[What the user is looking at right now, in the Condor dashboard...]",\n'
+    '  "[What the user is looking at right now, in the Griffin dashboard...]",\n'
     "  listing Screen, About, On screen and URL. That block is real: it is\n"
     "  read from the page the user has open at the moment they hit send.\n"
     "- So you DO know what they are looking at. Asked whether you can see\n"

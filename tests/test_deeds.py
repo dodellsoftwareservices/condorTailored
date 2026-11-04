@@ -364,7 +364,11 @@ def test_a_cut_that_cannot_be_written_down_dates_nothing(monkeypatch):
 # ── The next door, answered by a test rather than by architecture ──
 
 #: The route modules whose mutations reach the world. A new one belongs here.
-_ROUTE_MODULES = ("condor.web.routes.bots", "condor.web.routes.executors")
+_ROUTE_MODULES = (
+    "condor.web.routes.bots",
+    "condor.web.routes.executors",
+    "condor.web.routes.paper_equities",
+)
 
 #: The HTTP methods that change something. ``GET`` never does.
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -422,6 +426,7 @@ def _known_verbs() -> set[str]:
         "manage_controllers:delete",
         "stop_executor",
         "clear_position_held",
+        "submit_equity_order",
         *CREATE_EXECUTOR_TOOLS,
     }
 

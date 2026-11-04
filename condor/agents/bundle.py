@@ -837,12 +837,12 @@ def parse(data: bytes | str) -> Bundle:
     kind = payload.get("kind")
     if kind != KIND:
         raise BundleError(
-            f"This is not a Condor agent bundle (kind: {kind!r}, expected " f"'{KIND}')"
+            f"This is not a Griffin agent bundle (kind: {kind!r}, expected " f"'{KIND}')"
         )
     schema = payload.get("schema")
     if schema != SCHEMA:
         raise BundleError(
-            f"This bundle was made by a newer Condor (schema {schema}); this "
+            f"This bundle was made by a newer Griffin (schema {schema}); this "
             f"install reads up to {SCHEMA}"
         )
     try:
@@ -1727,7 +1727,7 @@ def plan_update(
                 UpdateBlocker(
                     code="stock_agent",
                     message=(
-                        f"'{slug}' is an agent Condor ships, and the shipped "
+                        f"'{slug}' is an agent Griffin ships, and the shipped "
                         "library is only written by publishing. Import this "
                         "bundle under another name instead."
                     ),

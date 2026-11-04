@@ -180,7 +180,7 @@ describe("labels", () => {
   const pseudo = (strategySlug: string, strategyName: string) =>
     owner({
       agentSlug: "condor",
-      agentName: "Condor",
+      agentName: "Griffin",
       strategySlug,
       strategyName,
       namespace: "",
@@ -198,9 +198,9 @@ describe("labels", () => {
   });
 
   it("name a pseudo-run row with the map's words, not its slugs", () => {
-    expect(ownerRowLabel(doors, "condor.ui")).toBe("Condor / Dashboard");
-    expect(ownerRowLabel(doors, "condor.chat")).toBe("Condor / Chat");
-    expect(ownerRowLabel(doors, "condor.delegation")).toBe("Condor / Delegation");
+    expect(ownerRowLabel(doors, "condor.ui")).toBe("Griffin / Dashboard");
+    expect(ownerRowLabel(doors, "condor.chat")).toBe("Griffin / Chat");
+    expect(ownerRowLabel(doors, "condor.delegation")).toBe("Griffin / Delegation");
   });
 
   it("keep a real strategy in slugs, which is what its bot names are built from", () => {

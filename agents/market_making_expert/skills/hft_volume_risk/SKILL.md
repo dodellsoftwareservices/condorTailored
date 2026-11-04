@@ -14,7 +14,7 @@ agent that reads this must hand the decision to it.
 **What you produce:** one risk verdict per book — `state` (GO / THROTTLE / HALT), a size
 `multiplier` in [0, 1], the `binding_gate`, and the derived quoting/limit numbers (schema in §8).
 
-**Scope, honestly.** Condor loops tick every 60-3600 s and Hummingbot executors act at ~1 s
+**Scope, honestly.** Griffin loops tick every 60-3600 s and Hummingbot executors act at ~1 s
 through exchange REST/WS. That is second-scale market making, not sub-millisecond HFT: you
 cannot win queue position, so fill intensity must be *measured from your own fills*, never
 assumed from the tape. The formulas below are valid at that scale.

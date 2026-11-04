@@ -93,7 +93,7 @@ describe("renderOverlayTooltipHtml", () => {
     expect(text).toContain("-2.00%");
     // Not running, so the far price is the close.
     expect(text).toContain("Close");
-    expect(html).toContain("#ef4444");
+    expect(html).toContain("#f28b96");
   });
 
   it("gives an LP overlay a neutral range badge and its bounds", () => {

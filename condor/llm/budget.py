@@ -32,9 +32,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
+import os
 import threading
 import time
 from collections import deque
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -44,6 +47,18 @@ from condor.agent_config import Budget, get_agent_config
 from condor.paths import data_dir
 
 log = logging.getLogger(__name__)
+
+
+def unmetered_backend_error() -> str | None:
+    budget = get_agent_config().budget
+    if budget.enabled and budget.daily_cost_cap_usd is not None:
+        return (
+            "The configured dollar budget cannot meter ACP subscription clients. "
+            "Choose a direct model provider (OpenRouter, OpenAI, Anthropic, etc.) "
+            "or explicitly remove dailyCostCapUsd to use this client."
+        )
+    return None
+
 
 try:  # POSIX advisory lock; the ledger still works without it (single writer).
     import fcntl
@@ -129,6 +144,8 @@ class RequestLedger:
         self._count = 0
         self._by_caller: dict[str, int] = {}
         self._limited_until = 0.0
+        self._cost_usd = 0.0
+        self._unpriced_costs = 0
 
     # -- paths --
 
@@ -147,6 +164,8 @@ class RequestLedger:
             self._day, self._offset, self._count = day, 0, 0
             self._by_caller = {}
             self._limited_until = 0.0
+            self._cost_usd = 0.0
+            self._unpriced_costs = 0
         path = self.path_for(day)
         try:
             size = path.stat().st_size
@@ -157,6 +176,8 @@ class RequestLedger:
             # file, so start the day over from its first byte.
             self._offset, self._count, self._by_caller = 0, 0, {}
             self._limited_until = 0.0
+            self._cost_usd = 0.0
+            self._unpriced_costs = 0
         if size == self._offset:
             return
         try:
@@ -188,6 +209,16 @@ class RequestLedger:
                     )
                 except (TypeError, ValueError):
                     pass
+            elif event == "cost":
+                try:
+                    amount = float(record.get("usd") or 0)
+                    if not math.isfinite(amount) or amount < 0:
+                        raise ValueError("Invalid cost")
+                    self._cost_usd += amount
+                except (TypeError, ValueError):
+                    self._unpriced_costs += 1
+            elif event == "cost_unknown":
+                self._unpriced_costs += 1
 
     def sync(self, now: float | None = None) -> None:
         with self._lock:
@@ -213,6 +244,23 @@ class RequestLedger:
         with self._lock:
             self._fold(self._clock() if now is None else now)
             return self._limited_until
+
+    def cost_today(self, now: float | None = None) -> float:
+        """Dollars folded in today via :meth:`record_cost` — 0.0 if never recorded."""
+        with self._lock:
+            self._fold(self._clock() if now is None else now)
+            return self._cost_usd
+
+    def unpriced_today(self, now: float | None = None) -> int:
+        with self._lock:
+            self._fold(self._clock() if now is None else now)
+            return self._unpriced_costs
+
+    def record_unpriced(self, caller: str) -> None:
+        with self._lock:
+            now = self._clock()
+            self._append(now, {"t": now, "ev": "cost_unknown", "caller": caller})
+            self._fold(now)
 
     # -- writing --
 
@@ -287,6 +335,36 @@ class RequestLedger:
             },
         )
 
+    def record_cost(
+        self,
+        caller: str,
+        cost_usd: float,
+        *,
+        now: float | None = None,
+    ) -> float:
+        """Record one response's priced cost, retaining sub-microdollar values.
+
+        Zero means known free usage; unknown prices use record_unpriced so an
+        enabled dollar cap cannot confuse missing pricing with free requests.
+        """
+        cost_usd = float(cost_usd)
+        if not math.isfinite(cost_usd) or cost_usd < 0:
+            raise ValueError("Cost must be finite and nonnegative")
+        now = self._clock() if now is None else now
+        with self._lock:
+            self._fold(now)
+            self._append(
+                now,
+                {
+                    "t": round(now, 3),
+                    "ev": "cost",
+                    "caller": caller or "other",
+                    "usd": cost_usd,
+                },
+            )
+            self._fold(now)
+            return self._cost_usd
+
     def record_limit(
         self,
         caller: str,
@@ -329,6 +407,8 @@ class BudgetSnapshot:
     requests_per_minute: int
     resets_at: float
     limited_until: float
+    cost_used_usd: float
+    cost_cap_usd: float | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -341,6 +421,8 @@ class BudgetSnapshot:
             "requests_per_minute": self.requests_per_minute,
             "resets_at": self.resets_at,
             "limited_until": self.limited_until,
+            "cost_used_usd": self.cost_used_usd,
+            "cost_cap_usd": self.cost_cap_usd,
         }
 
 
@@ -365,6 +447,7 @@ class RequestGovernor:
         self._window: deque[float] = deque()
         self._cooldown_until = 0.0
         self._gate: asyncio.Lock | None = None
+        self._cost_gate: asyncio.Lock | None = None
 
     # -- configuration --
 
@@ -406,6 +489,8 @@ class RequestGovernor:
             requests_per_minute=cfg.requests_per_minute,
             resets_at=next_reset(now),
             limited_until=self.ledger.limited_until(now),
+            cost_used_usd=self.ledger.cost_today(now),
+            cost_cap_usd=cfg.daily_cost_cap_usd,
         )
 
     def hold_seconds(self, minimum: int = 1, now: float | None = None) -> float:
@@ -420,6 +505,11 @@ class RequestGovernor:
         if not cfg.enabled:
             return 0.0
         snap = self.snapshot(now)
+        if cfg.daily_cost_cap_usd is not None and (
+            snap.cost_used_usd >= cfg.daily_cost_cap_usd
+            or self.ledger.unpriced_today(now)
+        ):
+            return snap.resets_at - now
         if snap.limited_until > now:
             return snap.limited_until - now
         if snap.remaining < max(1, minimum):
@@ -427,6 +517,62 @@ class RequestGovernor:
         return 0.0
 
     # -- admission --
+
+    def check_cost_budget(self) -> None:
+        cfg = self.config
+        if not cfg.enabled or cfg.daily_cost_cap_usd is None:
+            return
+        now = self._clock()
+        if self.ledger.unpriced_today(now):
+            raise BudgetExhausted(
+                "Dollar budget paused: a response could not be priced. "
+                "Check provider pricing before continuing; resets at "
+                + _clock_label(next_reset(now)),
+                next_reset(now),
+            )
+        spent = self.ledger.cost_today(now)
+        if spent >= cfg.daily_cost_cap_usd:
+            raise BudgetExhausted(
+                f"daily cost budget spent (${spent:.2f} of ${cfg.daily_cost_cap_usd:.2f}); "
+                f"resets at {_clock_label(next_reset(now))}",
+                next_reset(now),
+            )
+
+    @asynccontextmanager
+    async def cost_slot(self):
+        """One priced request in flight across processes when dollars are capped.
+
+        Actual cost is only known after a response. Serializing admission limits
+        overshoot to that response, instead of a whole run or concurrent runs.
+        """
+        cfg = self.config
+        if not cfg.enabled or cfg.daily_cost_cap_usd is None:
+            yield
+            return
+        if self._cost_gate is None:
+            self._cost_gate = asyncio.Lock()
+        async with self._cost_gate:
+            fd = None
+            try:
+                if fcntl is not None:
+                    self.ledger.directory.mkdir(parents=True, exist_ok=True)
+                    fd = os.open(
+                        self.ledger.directory / "cost-admission.lock",
+                        os.O_CREAT | os.O_RDWR,
+                        0o600,
+                    )
+                    while True:
+                        try:
+                            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            break
+                        except BlockingIOError:
+                            await asyncio.sleep(0.05)
+                self.check_cost_budget()
+                yield
+            finally:
+                if fd is not None:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                    os.close(fd)
 
     def _lock(self) -> asyncio.Lock:
         if self._gate is None:
@@ -468,6 +614,7 @@ class RequestGovernor:
                         f"back); resets at {_clock_label(next_reset(now))}",
                         next_reset(now),
                     )
+                self.check_cost_budget()
                 wait = max(
                     self._cooldown_until - now,
                     self._rpm_wait(now, cfg.requests_per_minute),

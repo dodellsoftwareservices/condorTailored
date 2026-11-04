@@ -273,7 +273,7 @@ class AgentConfig(BaseModel):
     )
     restart_on_boot: bool = Field(
         default=False,
-        description="Resume this loop after Condor restarts. The boot pass "
+        description="Resume this loop after Griffin restarts. The boot pass "
         "(condor.runtime.loops) marks an interrupted run and, only with this "
         "set, starts a FRESH session from the config as it stands then. Off by "
         "default: a trading loop that resumes unattended after a crash nobody "

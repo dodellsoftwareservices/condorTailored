@@ -158,9 +158,25 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  document.body.style.removeProperty("zoom");
 });
 
 describe("TradeChart price-line drag", () => {
+  it("does not double-scale a canvas that cancels the app zoom", async () => {
+    document.body.style.zoom = "0.9";
+    await render();
+    Object.defineProperty(pane(), "currentCSSZoom", { value: 1 });
+    await drag(yAtPrice(START_PRICE), 340);
+    expect(onPriceSet).toHaveBeenCalledWith("start", priceAtY(340));
+  });
+
+  it("maps a scaled pointer back to the chart's price coordinate", async () => {
+    document.body.style.zoom = "0.9";
+    await render();
+    await drag(yAtPrice(START_PRICE) * 0.9, 340 * 0.9);
+    expect(onPriceSet).toHaveBeenCalledWith("start", priceAtY(340));
+  });
+
   it("moves the grabbed line's price to the pointer", async () => {
     await render();
     await drag(yAtPrice(START_PRICE), 340);

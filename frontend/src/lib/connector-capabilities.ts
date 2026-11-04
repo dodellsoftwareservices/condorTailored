@@ -117,7 +117,7 @@ export function connectorCapabilities(
  * The venues the trade panel offers, credentialed ones first.
  *
  * Trade is for venues with an order book — whether or not the venue is
- * decentralized: hyperliquid and xrpl belong here, solana-mainnet-beta does not.
+ * decentralized: dydx_v4_perpetual and xrpl belong here, solana-mainnet-beta does not.
  * Everything Condor trades through Gateway lives on /dex instead, where the pool
  * rather than the pair is the unit of navigation.
  *

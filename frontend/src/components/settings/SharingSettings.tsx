@@ -158,7 +158,7 @@ export function SharingSettings() {
 
       <section>
         <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-          Share my conversations with Condor
+          Share my conversations with Griffin
         </h4>
 
         <div className="space-y-1">

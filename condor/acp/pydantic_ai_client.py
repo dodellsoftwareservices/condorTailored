@@ -78,6 +78,14 @@ MCP_TRANSPORT_POLL_SECONDS = 2.0
 # rather than gone. A dead transport answers at once, with an error.
 MCP_PING_TIMEOUT_SECONDS = 5.0
 
+# A long-lived chat session reuses one client across every turn, and each
+# turn's messages are resent in full on every subsequent one — unbounded
+# growth, O(N^2) cumulative resend cost on a paid model (system review
+# 2026-10-31, finding #22). Keeping the most recent turns, dropped whole
+# (never mid tool-call/tool-result), is the plain "keep last N" bound this
+# codebase already uses for other per-turn-growing state.
+MAX_HISTORY_TURNS = 60
+
 
 def _get_server_semaphore(base_url: str) -> asyncio.Semaphore:
     if base_url not in _SERVER_SEMAPHORES:
@@ -530,8 +538,17 @@ class PydanticAIClient:
         self._lifecycle_error: BaseException | None = None
         # Accumulated turn history — grows with each prompt_stream() call so
         # the model sees prior turns. A fresh client is created per session/tick,
-        # so history is reset by recreating the client rather than in-place.
+        # so history is reset by recreating the client rather than in-place —
+        # but a loop tick already gets a fresh client every tick (TickEngine),
+        # so only a long-lived chat session (same client reused across many
+        # prompt_stream() calls, condor/runtime/sessions.py) actually keeps
+        # this growing for the session's life, resending the whole thing on
+        # every single turn (system review 2026-10-31, finding #22).
+        # ``_history_turn_lens`` tracks how many messages each turn added, so
+        # trimming can only ever drop whole turns — never split a
+        # tool-call/tool-result pair mid-turn, which a model API will refuse.
         self._message_history: list = []
+        self._history_turn_lens: list[int] = []
         # Set by abort_prompt(); the node loop reads it between graph steps.
         # There is no protocol to notify here (the "agent" is a library call),
         # so cancelling the run *is* the cancel.
@@ -542,6 +559,18 @@ class PydanticAIClient:
         self.usage = TokenUsage()
 
     async def _build_model(self) -> Any:
+        from condor.llm.budget import get_governor
+        from condor.llm.cost_model import CostTrackingModel
+
+        model = await self._build_provider_model()
+        governor = get_governor()
+        return (
+            CostTrackingModel(model, governor, self.budget_caller, self.model_name)
+            if governor.config.enabled
+            else model
+        )
+
+    async def _build_provider_model(self) -> Any:
         """Build the pydantic-ai model object with sensible defaults.
 
         Async because a bare local key ("ollama:" / "lmstudio:") has to ask the
@@ -820,6 +849,15 @@ class PydanticAIClient:
             self._mcp_servers.append(mcp_server)
 
         model = await self._build_model()
+        # Keep the meter installed even if the budget starts disabled: a long
+        # chat can enable its dollar cap without rebuilding this client.
+        from condor.llm.budget import get_governor
+        from condor.llm.cost_model import CostTrackingModel
+
+        if not isinstance(model, CostTrackingModel):
+            model = CostTrackingModel(
+                model, get_governor(), self.budget_caller, self.model_name
+            )
         capabilities = (
             [PrepareTools(self._prepare_tools)] if self.allowed_tools else None
         )
@@ -878,9 +916,16 @@ class PydanticAIClient:
         if cfg.max_output_tokens is not None:
             settings["max_tokens"] = cfg.max_output_tokens
         if model_prefix(self.model_name) == "openrouter":
+            body: dict[str, Any] = {}
             reasoning = cfg.thinking.openrouter_reasoning()
             if reasoning:
-                settings["extra_body"] = {"reasoning": reasoning}
+                body["reasoning"] = reasoning
+            model_id = self.model_name.partition(":")[2]
+            allowed = cfg.openrouter_provider_only.get(model_id)
+            if allowed:
+                body["provider"] = {"only": list(allowed)}
+            if body:
+                settings["extra_body"] = body
         return settings or None
 
     def _usage_limits(self) -> Any:
@@ -1322,9 +1367,9 @@ class PydanticAIClient:
                     # as though it had finished a turn the user never saw. A run
                     # that hit its request limit is the same shape.
                     if run.result is not None:
-                        self._message_history.extend(run.result.new_messages())
+                        self._extend_message_history(run.result.new_messages())
                     elif aborted or limit_hit:
-                        self._message_history.extend(run.new_messages())
+                        self._extend_message_history(run.new_messages())
 
                 if limit_hit:
                     # ACP's name for this stop, so every consumer already reads
@@ -1380,10 +1425,9 @@ class PydanticAIClient:
         pydantic-ai's ``input_tokens`` is already inclusive of cache, which is
         the shape :class:`TokenUsage` stores, so the counters go in unconverted.
 
-        The price is all or nothing per run: one response the bundled
-        ``genai_prices`` table cannot price (every local model, a brand-new
-        id) makes the run's cost unknown rather than understated, and it is
-        counted in ``unpriced_turns`` instead.
+        Keep the known priced subtotal even when another response cannot be
+        priced, and mark that run in ``unpriced_turns``. Per-response durable
+        accounting and admission live in CostTrackingModel.
 
         Never raises: accounting must not cost the user their answer.
         """
@@ -1404,7 +1448,7 @@ class PydanticAIClient:
                     cost += float(response.cost().total_price)
                 except Exception:  # noqa: BLE001 - LookupError, the model_name assert
                     priced = False
-                    break
+                    continue
             context_used = None
             if responses:
                 last = responses[-1].usage
@@ -1414,13 +1458,32 @@ class PydanticAIClient:
                 output_tokens=ru.output_tokens,
                 cache_read_tokens=ru.cache_read_tokens,
                 cache_write_tokens=ru.cache_write_tokens,
-                cost_usd=cost if priced else 0.0,
+                cost_usd=cost,
                 unpriced_turns=0 if priced else 1,
                 context_used=context_used,
                 context_size=self._context_size(),
             )
+            # Durable cost accounting happens in CostTrackingModel after each
+            # response, before another tool step can make a provider request.
         except Exception:  # noqa: BLE001 - see docstring
             log.warning("Could not count usage for %s", self.model_name, exc_info=True)
+
+    def _extend_message_history(self, new_messages: list) -> None:
+        """Append one turn's messages, then drop the oldest whole turns past
+        :data:`MAX_HISTORY_TURNS` (finding #22).
+
+        Tracked and trimmed per-turn, never per-message: a turn's messages
+        alternate ``ModelResponse`` tool calls with the ``ModelRequest`` tool
+        results answering them, and cutting between the two would hand the
+        model a dangling tool call with no result, which most providers
+        reject outright. Dropping a turn only once it is entirely past the
+        cap keeps every surviving pair intact.
+        """
+        self._message_history.extend(new_messages)
+        self._history_turn_lens.append(len(new_messages))
+        while len(self._history_turn_lens) > MAX_HISTORY_TURNS:
+            oldest = self._history_turn_lens.pop(0)
+            del self._message_history[:oldest]
 
     def _context_size(self) -> int | None:
         """The model's context window, when it is known without a request.

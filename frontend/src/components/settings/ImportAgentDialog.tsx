@@ -39,7 +39,7 @@ const FINDING_COPY: Record<string, { title: string; blurb: string }> = {
   code_run: {
     title: "Doors onto arbitrary code",
     blurb:
-      "An imported routine runs inside Condor with no sandbox, and these lines run whatever string they are given.",
+      "An imported routine runs inside Griffin with no sandbox, and these lines run whatever string they are given.",
   },
   tool_steer: {
     title: "Tools that move money, named in its text",
@@ -340,7 +340,7 @@ export function ImportAgentDialog({
               </p>
             )}
             {/* The label is not decoration: a handle rendered next to a download
-                without one reads as provenance, and Condor verifies nothing
+                without one reads as provenance, and Griffin verifies nothing
                 here — it signs no bundle and has no keys to check one with. */}
             {(plan.author.name || plan.author.handle) && (
               <p data-bundle-author className="mt-1 text-[11px] text-[var(--color-text-muted)]">
@@ -461,7 +461,7 @@ export function ImportAgentDialog({
               </p>
               <p className="mb-2 text-[11px] text-[var(--color-text-muted)]">
                 A bundle from someone you do not trust is untrusted code: an imported
-                routine runs inside Condor with no sandbox. These arrive muted — read
+                routine runs inside Griffin with no sandbox. These arrive muted — read
                 each one before you switch it on.
               </p>
               <ul className="space-y-0.5">

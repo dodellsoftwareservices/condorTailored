@@ -204,6 +204,33 @@ def test_a_daily_limit_is_remembered_until_it_lifts_and_not_past_midnight(tmp_pa
     assert led2.limited_until() == 0.0
 
 
+def test_cost_is_zero_until_recorded(tmp_path):
+    clock = Clock(NOON)
+    led = b.RequestLedger(tmp_path, clock=clock)
+    assert led.cost_today() == 0.0
+
+
+def test_recorded_costs_accumulate_for_the_day(tmp_path):
+    clock = Clock(NOON)
+    led = b.RequestLedger(tmp_path, clock=clock)
+
+    assert led.record_cost("x", 0.12) == pytest.approx(0.12)
+    assert led.record_cost("y", 0.08) == pytest.approx(0.20)
+    assert led.cost_today() == pytest.approx(0.20)
+    # a second ledger (another process) reads the same total
+    assert b.RequestLedger(tmp_path, clock=clock).cost_today() == pytest.approx(0.20)
+
+
+def test_cost_resets_at_utc_midnight(tmp_path):
+    clock = Clock(utc(2026, 10, 28, 23, 59, 0))
+    led = b.RequestLedger(tmp_path, clock=clock)
+    led.record_cost("x", 5.0)
+    assert led.cost_today() == pytest.approx(5.0)
+
+    clock.now = utc(2026, 10, 29, 0, 0, 1)
+    assert led.cost_today() == 0.0
+
+
 # ── governor ──
 
 
@@ -264,6 +291,64 @@ def test_the_reserve_is_never_spent(tmp_path):
     assert "7 of 10" in str(err.value)
     assert err.value.resets_at == utc(2026, 10, 29)
     assert ledger.used_today() == 7  # the refused request was not booked
+
+
+def test_no_cost_cap_set_never_raises_on_cost(tmp_path):
+    clock = Clock(NOON)
+    gov, ledger = make(tmp_path, clock, requests_per_minute=1000)
+    ledger.record_cost("x", 1_000_000.0)  # absurd, but daily_cost_cap_usd is None
+    run(gov.acquire("x", "m:free"))  # no raise
+
+
+def test_a_cost_cap_blocks_the_next_request_once_crossed(tmp_path):
+    clock = Clock(NOON)
+    gov, ledger = make(
+        tmp_path,
+        clock,
+        applies_to="all",
+        requests_per_minute=1000,
+        daily_cost_cap_usd=5.0,
+    )
+    ledger.record_cost("x", 4.99)
+    run(gov.acquire("x", "m:paid"))  # still under the cap
+
+    ledger.record_cost("x", 0.02)  # now at $5.01, over the $5 cap
+    with pytest.raises(b.BudgetExhausted) as err:
+        run(gov.acquire("x", "m:paid"))
+
+    assert "$5.01" in str(err.value)
+    assert "$5.00" in str(err.value)
+    assert err.value.resets_at == utc(2026, 10, 29)
+
+
+def test_a_cost_cap_is_checked_even_when_applies_to_is_all(tmp_path):
+    """A paid model is only metered at all when ``appliesTo: "all"`` — the
+    live cost-cap scenario the system review describes (finding #21)."""
+    clock = Clock(NOON)
+    gov, ledger = make(
+        tmp_path,
+        clock,
+        applies_to="all",
+        requests_per_minute=1000,
+        daily_cost_cap_usd=1.0,
+    )
+    ledger.record_cost("x", 1.50)
+
+    with pytest.raises(b.BudgetExhausted):
+        run(gov.acquire("x", "anthropic/claude-sonnet-4-5"))
+
+
+def test_the_cost_cap_resets_with_the_day(tmp_path):
+    clock = Clock(utc(2026, 10, 28, 23, 59, 0))
+    gov, ledger = make(
+        tmp_path, clock, requests_per_minute=1000, daily_cost_cap_usd=1.0
+    )
+    ledger.record_cost("x", 2.0)
+    with pytest.raises(b.BudgetExhausted):
+        run(gov.acquire("x", "m:free"))
+
+    clock.now = utc(2026, 10, 29, 0, 0, 1)
+    run(gov.acquire("x", "m:free"))  # no raise — new day, cost reset to 0
 
 
 def test_the_budget_comes_back_after_the_reset(tmp_path):
@@ -420,6 +505,8 @@ def test_snapshot_reports_the_whole_picture(tmp_path):
         "requests_per_minute": 1000,
         "resets_at": utc(2026, 10, 29),
         "limited_until": 0.0,
+        "cost_used_usd": 0.0,
+        "cost_cap_usd": None,
     }
 
 

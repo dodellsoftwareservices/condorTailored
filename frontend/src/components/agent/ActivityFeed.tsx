@@ -14,7 +14,7 @@ import {
   DELEGATION_STATUS,
   formatDelegationTime,
 } from "@/components/agent/delegationStatus";
-import { api, type DelegationKind, type DelegationSummary } from "@/lib/api";
+import { api, CHAT_SLUG, type DelegationKind, type DelegationSummary } from "@/lib/api";
 import { formatDuration } from "@/lib/formatters";
 
 /** How a kind reads in a row: its glyph and what to call it. */
@@ -243,7 +243,7 @@ export function ActivityFeed({
                   <span className="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
                     {!agent && (
                       <span className="font-mono text-[var(--color-primary)]">
-                        {d.agent}
+                        {d.agent === CHAT_SLUG ? "Griffin" : d.agent}
                       </span>
                     )}
                     {/* Each kind says the one thing it actually knows: who asked
@@ -253,7 +253,7 @@ export function ActivityFeed({
                     <span>
                       {k === "consult"
                         ? d.caller
-                          ? `asked by ${d.caller}`
+                          ? `asked by ${d.caller === CHAT_SLUG ? "Griffin" : d.caller}`
                           : "asked by you"
                         : KIND[k].label}
                     </span>

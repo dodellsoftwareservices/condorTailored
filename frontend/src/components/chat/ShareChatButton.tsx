@@ -77,8 +77,8 @@ export function ShareChatButton({
         } ${className}`}
         title={
           shared
-            ? "Shared with Condor — review or unshare"
-            : "Share this chat with Condor"
+            ? "Shared with Griffin — review or unshare"
+            : "Share this chat with Griffin"
         }
         aria-label={shared ? "Review this share" : "Share this chat"}
       >

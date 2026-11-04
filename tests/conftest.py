@@ -1,11 +1,45 @@
 """Test helpers shared across the suite."""
 
 import importlib.util
+import os
 import sys
+import tempfile
+from pathlib import Path
 
 import pytest
 
 from condor.memory.paths import shared_routines_roots
+
+
+def pytest_configure(config):
+    """Protect collection-time ConfigManager accesses, before fixtures run."""
+    config._config_sandbox = tempfile.TemporaryDirectory(prefix="condor-pytest-")
+    config._previous_config_path = os.environ.get("CONDOR_CONFIG_PATH")
+    os.environ["CONDOR_CONFIG_PATH"] = str(
+        Path(config._config_sandbox.name) / "config.yml"
+    )
+
+
+def pytest_unconfigure(config):
+    sandbox = getattr(config, "_config_sandbox", None)
+    if sandbox is None:
+        return
+    previous = config._previous_config_path
+    if previous is None:
+        os.environ.pop("CONDOR_CONFIG_PATH", None)
+    else:
+        os.environ["CONDOR_CONFIG_PATH"] = previous
+    sandbox.cleanup()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config_manager(tmp_path, monkeypatch):
+    import config_manager
+
+    monkeypatch.setenv("CONDOR_CONFIG_PATH", str(tmp_path / "config.yml"))
+    monkeypatch.setattr(config_manager.ConfigManager, "_instance", None)
+    yield
+    config_manager.ConfigManager.reset_instance()
 
 
 def load_shared_routine(name: str):
@@ -97,6 +131,10 @@ def _isolated_runtime_root(tmp_path, monkeypatch):
     monkeypatch.setenv(paths.AGENTS_ROOT_ENV, str(tmp_path / "agents"))
     monkeypatch.setenv(paths.STOCK_AGENTS_ROOT_ENV, str(tmp_path / "stock-agents"))
     monkeypatch.setenv(paths.REPORTS_DIR_ENV, str(tmp_path / "reports"))
+
+    from condor import service_health
+
+    monkeypatch.setattr(service_health, "health", service_health.ServiceHealth())
 
     # ``agent-config.json`` at the repo root is the owner's own: its alwaysAllow
     # list would pre-approve calls these tests assert a human is asked about,

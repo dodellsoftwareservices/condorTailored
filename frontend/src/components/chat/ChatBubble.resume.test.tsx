@@ -227,7 +227,7 @@ describe("ChatBubble with no live slot on an agent's page", () => {
     expect(chat.setActiveSlotId).not.toHaveBeenCalled();
   });
 
-  it("matches Condor's own page through the registry's spelling", async () => {
+  it("matches Griffin's own page through the registry's spelling", async () => {
     // `/agents/condor` normalizes to the empty slug, and a record written
     // before the two spellings were reconciled still says "condor".
     listConversations.mockResolvedValue([conversation("conv-c", "condor")]);

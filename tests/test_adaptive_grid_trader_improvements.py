@@ -88,7 +88,7 @@ def _run_mode(
         (
             {
                 "master_account": {
-                    "binance_perpetual": [
+                    position_mode.Config.model_fields["connector_name"].default: [
                         {"token": "USDT", "units": 100, "available_units": 90}
                     ]
                 }
@@ -120,15 +120,16 @@ def test_confirmed_empty_state_is_safe_and_uses_exact_filters(monkeypatch):
     assert "pair_state_read: CONFIRMED" in output
     assert "quote_available_balance: 90 USDT" in output
     assert "balance_state_read: CONFIRMED" in output
+    default_connector = position_mode.Config.model_fields["connector_name"].default
     assert trading.active_order_call == {
         "account_names": ["master_account"],
-        "connector_names": ["binance_perpetual"],
+        "connector_names": [default_connector],
         "trading_pairs": ["SOL-USDT"],
         "limit": 1000,
     }
     assert portfolio.call == {
         "account_names": ["master_account"],
-        "connector_names": ["binance_perpetual"],
+        "connector_names": [default_connector],
         "refresh": True,
     }
 

@@ -287,7 +287,7 @@ class ControllerImpact:
                 "will see drift on their next status."
             )
         else:
-            owners_line = f"• Other agents with a '{name}': none on this Condor."
+            owners_line = f"• Other agents with a '{name}': none on this Griffin."
 
         if not self.server_had_copy:
             bots_line = (

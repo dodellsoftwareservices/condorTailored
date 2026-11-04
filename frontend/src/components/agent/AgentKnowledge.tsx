@@ -792,7 +792,7 @@ function BrainTab({
       {brain.when_to_consult && (
         <div className="mb-4 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
           <p className="mb-0.5 text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
-            When Condor routes to it
+            When Griffin routes to it
           </p>
           <p className="text-xs text-[var(--color-text)]">
             {brain.when_to_consult}
@@ -1090,7 +1090,7 @@ function MemoriesTab({
 
 /** The two MCP subprocesses a seat mounts, in the order the panel groups them. */
 const TOOL_SERVERS: { id: string; label: string }[] = [
-  { id: "condor", label: "Condor" },
+  { id: "condor", label: "Griffin" },
   { id: "hummingbot", label: "Hummingbot" },
 ];
 
@@ -1227,7 +1227,7 @@ function RoutinesTab({
       {anyPending && (
         <p className="rounded border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-400">
           Some of these routines came from an imported bundle and have not run
-          here yet. A routine runs as Python inside the Condor process, with no
+          here yet. A routine runs as Python inside the Griffin process, with no
           sandbox — open it, read it, then Allow it. Allowing is separate from
           the on/off switch: the switch says whether this agent may use it, Allow
           says whether its code may run at all.

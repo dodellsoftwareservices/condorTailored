@@ -55,7 +55,7 @@ function agent(over: Partial<AgentSummary>): AgentSummary {
 }
 
 const ROSTER = [
-  agent({ slug: "condor", name: "Condor", description: "General assistant" }),
+  agent({ slug: "condor", name: "Griffin", description: "General assistant" }),
   agent({ slug: "brigado", name: "Brigado" }),
 ];
 
@@ -102,7 +102,7 @@ afterEach(() => {
 });
 
 describe("SessionTabs new chat", () => {
-  it("offers every agent, with Condor as the unbound one", async () => {
+  it("offers every agent, with Griffin as the unbound one", async () => {
     const picked: Array<[string, string | null]> = [];
     await render(picked);
 
@@ -111,11 +111,11 @@ describe("SessionTabs new chat", () => {
 
     const labels = menuItems().map((el) => el.textContent);
     expect(labels).toHaveLength(2);
-    expect(labels[0]).toContain("Condor");
+    expect(labels[0]).toContain("Griffin");
     expect(labels[1]).toContain("Brigado");
   });
 
-  it("reports the picked agent, and Condor as the empty slug", async () => {
+  it("reports the picked agent, and Griffin as the empty slug", async () => {
     const picked: Array<[string, string | null]> = [];
     await render(picked);
 

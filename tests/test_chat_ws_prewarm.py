@@ -130,7 +130,7 @@ def test_an_unbound_chat_is_still_the_plain_assistant(runtime_env):
 
     started = ws.events("session_started")[0]
     assert started["agent_slug"] == ""
-    assert started["label"] == "Condor"
+    assert started["label"] == "Griffin"
 
 
 def test_a_message_sent_mid_spawn_waits_for_it(runtime_env):

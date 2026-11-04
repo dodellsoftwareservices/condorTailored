@@ -2376,7 +2376,7 @@ export function PerfBrowser({
               hundred-run history would otherwise push the tree off a short
               window, and the tree is the thing the sidebar is for. */}
           {!isCompact && (
-            <div className="flex max-h-[45vh] flex-col gap-1.5 overflow-y-auto scrollbar-thin px-2 pb-2">
+            <div className="flex max-h-[calc(var(--app-viewport-height)*0.45)] flex-col gap-1.5 overflow-y-auto scrollbar-thin px-2 pb-2">
               <PopulationToggle population={population} onChange={setPopulation} />
 
               {/* Which question the tree is answering: owner, bot, pair or

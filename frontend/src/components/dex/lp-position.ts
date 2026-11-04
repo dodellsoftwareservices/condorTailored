@@ -103,8 +103,8 @@ export function lpStateStyle(state: string): {
   if (upper === "OUT_OF_RANGE") {
     return {
       label: "Out of range",
-      color: "var(--color-yellow)",
-      bg: "rgba(234,179,8,0.14)",
+      color: "var(--color-warning)",
+      bg: "color-mix(in srgb, var(--color-warning) 14%, transparent)",
     };
   }
   return {
