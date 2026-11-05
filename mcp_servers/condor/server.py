@@ -20,12 +20,14 @@ from mcp_servers.condor.tools import agent_controllers as agent_controllers_tool
 from mcp_servers.condor.tools import available_models as available_models_tool
 from mcp_servers.condor.tools import code as code_tool
 from mcp_servers.condor.tools import delegate as delegate_tool
-from mcp_servers.condor.tools import sim_exchange as sim_exchange_tool
 from mcp_servers.condor.tools import (
     memory,
     notification,
     routines,
     servers,
+)
+from mcp_servers.condor.tools import sim_exchange as sim_exchange_tool
+from mcp_servers.condor.tools import (
     skills,
     trading_agent,
 )
@@ -514,9 +516,18 @@ async def sim_submit_order(
     Returns:
         {"order": ..., "fills": [...], "cash": ..., "holding": ...}, or {"error": "..."}.
     """
-    body = {"pair": pair, "side": side, "type": order_type, "post_only": post_only,
-            "client_order_id": client_order_id or ""}
-    for key, value in (("qty", qty), ("quote_amount", quote_amount), ("price", limit_price)):
+    body = {
+        "pair": pair,
+        "side": side,
+        "type": order_type,
+        "post_only": post_only,
+        "client_order_id": client_order_id or "",
+    }
+    for key, value in (
+        ("qty", qty),
+        ("quote_amount", quote_amount),
+        ("price", limit_price),
+    ):
         if value is not None:
             body[key] = value
     return await sim_exchange_tool.submit_order(body)
@@ -635,8 +646,14 @@ async def sim_fut_submit_order(
     Returns:
         {"order": ..., "fills": [...], "cash": ..., "position": ...}, or {"error": "..."}.
     """
-    body = {"symbol": symbol, "side": side, "type": order_type, "post_only": post_only,
-            "reduce_only": reduce_only, "client_order_id": client_order_id or ""}
+    body = {
+        "symbol": symbol,
+        "side": side,
+        "type": order_type,
+        "post_only": post_only,
+        "reduce_only": reduce_only,
+        "client_order_id": client_order_id or "",
+    }
     for key, value in (("qty", qty), ("price", limit_price)):
         if value is not None:
             body[key] = value

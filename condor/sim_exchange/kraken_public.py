@@ -85,13 +85,17 @@ class KrakenPublicClient:
         timeout = aiohttp.ClientTimeout(total=15)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as s:
-                async with s.get(HOST + path, params=params, allow_redirects=False) as r:
+                async with s.get(
+                    HOST + path, params=params, allow_redirects=False
+                ) as r:
                     if r.status != 200:
                         raise KrakenPublicError(f"Kraken HTTP {r.status} for {path}")
                     return await r.json()
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
             # A timeout is not a ClientError; without it one slow reply read as a bug.
-            raise KrakenPublicError(f"Could not reach Kraken: {e or type(e).__name__}") from None
+            raise KrakenPublicError(
+                f"Could not reach Kraken: {e or type(e).__name__}"
+            ) from None
 
     async def _get(self, path: str, **params) -> dict:
         if not path.startswith(PUBLIC_PREFIX) or ".." in path:
@@ -101,7 +105,9 @@ class KrakenPublicClient:
             if wait > 0:
                 await asyncio.sleep(wait)
             try:
-                data = await self._transport(path, {k: v for k, v in params.items() if v is not None})
+                data = await self._transport(
+                    path, {k: v for k, v in params.items() if v is not None}
+                )
             finally:
                 self._last_call = self._clock()
         errors = data.get("error") or []
@@ -140,7 +146,9 @@ class KrakenPublicClient:
         res = await self._get(PUBLIC_PREFIX + "Depth", pair=altname, count=count)
         book = next(iter(res.values()))
         conv = lambda rows: [(Decimal(str(p)), Decimal(str(v))) for p, v, *_ in rows]
-        ts = max([float(r[2]) for r in book["bids"][:1] + book["asks"][:1]] or [time.time()])
+        ts = max(
+            [float(r[2]) for r in book["bids"][:1] + book["asks"][:1]] or [time.time()]
+        )
         return {"bids": conv(book["bids"]), "asks": conv(book["asks"]), "ts": ts}
 
     async def ticker(self, altname: str) -> dict:
@@ -157,12 +165,20 @@ class KrakenPublicClient:
             "low_24h": Decimal(str(t["l"][1])),
         }
 
-    async def trades(self, altname: str, since: str | None = None) -> tuple[list[Trade], str]:
+    async def trades(
+        self, altname: str, since: str | None = None
+    ) -> tuple[list[Trade], str]:
         res = await self._get(PUBLIC_PREFIX + "Trades", pair=altname, since=since)
         last = str(res.pop("last"))
         rows = next(iter(res.values()))
         out = [
-            Trade(Decimal(str(r[0])), Decimal(str(r[1])), float(r[2]), str(r[3]), str(r[6]) if len(r) > 6 else "")
+            Trade(
+                Decimal(str(r[0])),
+                Decimal(str(r[1])),
+                float(r[2]),
+                str(r[3]),
+                str(r[6]) if len(r) > 6 else "",
+            )
             for r in rows
         ]
         return out, last
@@ -172,6 +188,14 @@ class KrakenPublicClient:
         res.pop("last", None)
         rows = next(iter(res.values()))
         return [
-            {"ts": int(r[0]), "open": r[1], "high": r[2], "low": r[3], "close": r[4], "vwap": r[5], "volume": r[6]}
+            {
+                "ts": int(r[0]),
+                "open": r[1],
+                "high": r[2],
+                "low": r[3],
+                "close": r[4],
+                "vwap": r[5],
+                "volume": r[6],
+            }
             for r in rows
         ]

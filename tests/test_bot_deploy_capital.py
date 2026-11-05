@@ -244,7 +244,9 @@ def test_the_pure_check_without_a_capital_is_unchanged():
 # ── the shipped loops no longer ask for what the gate refuses ────────────────
 
 
-@pytest.mark.parametrize("loop", ["pmm_mister_operator"])  # hip_3_mm_operator removed: venue region-blocked
+@pytest.mark.parametrize(
+    "loop", ["pmm_mister_operator"]
+)  # hip_3_mm_operator removed: venue region-blocked
 def test_the_mm_loops_ceiling_is_not_above_the_capital_it_bounds(loop):
     """MM-4 at its source. Both loops shipped a 600 ceiling over 500 of capital,
     so the operator loop handed its deploy a cap the gate now refuses."""

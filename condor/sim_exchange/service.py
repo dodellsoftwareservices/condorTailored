@@ -108,7 +108,9 @@ class SimService:
         self._mids[base] = (self._clock(), mid)
         return mid
 
-    async def _held_mids(self, acct: E.Account, known: dict[str, D] | None = None) -> dict[str, D]:
+    async def _held_mids(
+        self, acct: E.Account, known: dict[str, D] | None = None
+    ) -> dict[str, D]:
         mids = dict(known or {})
         for base, qty in acct.holdings.items():
             if qty and base not in mids:
@@ -117,7 +119,9 @@ class SimService:
 
     # ── public reads ──
 
-    async def snapshot(self, pair: str, candles: int = 0, candle_minutes: int = 15) -> dict:
+    async def snapshot(
+        self, pair: str, candles: int = 0, candle_minutes: int = 15
+    ) -> dict:
         rules = await self.client.pair_rules(pair)
         ticker = await self.client.ticker(rules.altname)
         book = await self.client.depth(rules.altname, 100)
@@ -128,7 +132,11 @@ class SimService:
         spread = book["asks"][0][0] - book["bids"][0][0]
 
         def depth_within(levels, side, bps):
-            lim = mid * (1 + D(bps) / E.BPS) if side == "ask" else mid * (1 - D(bps) / E.BPS)
+            lim = (
+                mid * (1 + D(bps) / E.BPS)
+                if side == "ask"
+                else mid * (1 - D(bps) / E.BPS)
+            )
             tot = D("0")
             for p, s in levels:
                 if (side == "ask" and p > lim) or (side == "bid" and p < lim):
@@ -137,13 +145,24 @@ class SimService:
             return str(E.q5(tot))
 
         out = {
-            "pair": rules.altname, "base": rules.base, "quote": rules.quote,
-            "bid": str(book["bids"][0][0]), "ask": str(book["asks"][0][0]), "mid": str(mid),
+            "pair": rules.altname,
+            "base": rules.base,
+            "quote": rules.quote,
+            "bid": str(book["bids"][0][0]),
+            "ask": str(book["asks"][0][0]),
+            "mid": str(mid),
             "spread_bps": str((spread / mid * E.BPS).quantize(D("0.01"))),
-            "last": str(ticker["last"]), "vwap_24h": str(ticker["vwap_24h"]), "volume_24h": str(ticker["volume_24h"]),
-            "high_24h": str(ticker["high_24h"]), "low_24h": str(ticker["low_24h"]), "trades_24h": ticker["trades_24h"],
+            "last": str(ticker["last"]),
+            "vwap_24h": str(ticker["vwap_24h"]),
+            "volume_24h": str(ticker["volume_24h"]),
+            "high_24h": str(ticker["high_24h"]),
+            "low_24h": str(ticker["low_24h"]),
+            "trades_24h": ticker["trades_24h"],
             "depth_usd_within_bps": {
-                str(b): {"bids": depth_within(book["bids"], "bid", b), "asks": depth_within(book["asks"], "ask", b)}
+                str(b): {
+                    "bids": depth_within(book["bids"], "bid", b),
+                    "asks": depth_within(book["asks"], "ask", b),
+                }
                 for b in (10, 25, 50)
             },
             "market_order_impact_bps": {
@@ -153,15 +172,24 @@ class SimService:
                 }
                 for n in (500, 1000, 2500)
             },
-            "your_fee_rates_pct": {"maker": str(maker * 100), "taker": str(taker * 100)},
+            "your_fee_rates_pct": {
+                "maker": str(maker * 100),
+                "taker": str(taker * 100),
+            },
             "round_trip_cost_bps": {
-                "taker_both_ways_before_slippage": str(((taker * 2) * E.BPS).quantize(D("0.1"))),
-                "maker_both_ways_before_slippage": str(((maker * 2) * E.BPS).quantize(D("0.1"))),
+                "taker_both_ways_before_slippage": str(
+                    ((taker * 2) * E.BPS).quantize(D("0.1"))
+                ),
+                "maker_both_ways_before_slippage": str(
+                    ((maker * 2) * E.BPS).quantize(D("0.1"))
+                ),
                 "note": "An edge must beat this plus spread and impact before a trade is worth taking.",
             },
             "rules": {
-                "tick_size": str(rules.tick_size), "min_order_qty": str(rules.ordermin),
-                "min_order_value_usd": str(rules.costmin), "lot_decimals": rules.lot_decimals,
+                "tick_size": str(rules.tick_size),
+                "min_order_qty": str(rules.ordermin),
+                "min_order_value_usd": str(rules.costmin),
+                "lot_decimals": rules.lot_decimals,
             },
             "as_of": book["ts"],
         }
@@ -173,11 +201,21 @@ class SimService:
     # ── orders ──
 
     async def place(
-        self, *, pair: str, side: str, type: str = "market", qty: D | None = None, quote_amount: D | None = None,
-        price: D | None = None, post_only: bool = False, client_order_id: str = "",
+        self,
+        *,
+        pair: str,
+        side: str,
+        type: str = "market",
+        qty: D | None = None,
+        quote_amount: D | None = None,
+        price: D | None = None,
+        post_only: bool = False,
+        client_order_id: str = "",
     ) -> dict:
         if side == "buy" and client_order_id.lower().startswith("cal-"):
-            raise E.Rejected("Fee-only calibration buys are disabled; a new buy needs a trading edge")
+            raise E.Rejected(
+                "Fee-only calibration buys are disabled; a new buy needs a trading edge"
+            )
         async with self._lock:
             acct = self._load()
             rules = await self.client.pair_rules(pair)
@@ -195,21 +233,43 @@ class SimService:
             now = self._clock()
             if type == "market":
                 order, fills, dup = E.place_market(
-                    acct, rules, self.sched, side=side, qty=qty, quote_amount=quote_amount, book=book, now=now,
-                    client_id=client_order_id, latency_ms=latency, mids=mids,
+                    acct,
+                    rules,
+                    self.sched,
+                    side=side,
+                    qty=qty,
+                    quote_amount=quote_amount,
+                    book=book,
+                    now=now,
+                    client_id=client_order_id,
+                    latency_ms=latency,
+                    mids=mids,
                 )
             else:
                 order, fills, dup = E.place_limit(
-                    acct, rules, self.sched, side=side, qty=qty, price=price, book=book, now=now,
-                    client_id=client_order_id, post_only=post_only, latency_ms=latency, mids=mids,
+                    acct,
+                    rules,
+                    self.sched,
+                    side=side,
+                    qty=qty,
+                    price=price,
+                    book=book,
+                    now=now,
+                    client_id=client_order_id,
+                    post_only=post_only,
+                    latency_ms=latency,
+                    mids=mids,
                 )
                 if order.status == "open" and rules.altname not in acct.cursors:
                     _, last = await self.client.trades(rules.altname)
                     acct.cursors[rules.altname] = last
             self._save(acct)
             return {
-                "duplicate": dup, "order": _order(order), "fills": [_fill(f) for f in fills],
-                "cash": str(E.q5(acct.cash)), "holding": str(acct.holdings.get(rules.base, D("0"))),
+                "duplicate": dup,
+                "order": _order(order),
+                "fills": [_fill(f) for f in fills],
+                "cash": str(E.q5(acct.cash)),
+                "holding": str(acct.holdings.get(rules.base, D("0"))),
                 "simulated_latency_ms": latency,
             }
 
@@ -239,7 +299,10 @@ class SimService:
                     break
             acct.cursors[alt] = cursor
         self._save(acct)
-        return {"filled": [_fill(f) for f in new_fills], "open_orders": sum(1 for o in acct.orders.values() if o.status == "open")}
+        return {
+            "filled": [_fill(f) for f in new_fills],
+            "open_orders": sum(1 for o in acct.orders.values() if o.status == "open"),
+        }
 
     async def quote_state(self, bases: list[str]) -> dict:
         """What a quoting loop needs in one read, without advancing orders.
@@ -254,7 +317,8 @@ class SimService:
             return {
                 "open": [_order(o) for o in acct.orders.values() if o.status == "open"],
                 "free": {
-                    b: acct.holdings.get(b, D("0")) - E.reserved_base(acct, b) for b in bases
+                    b: acct.holdings.get(b, D("0")) - E.reserved_base(acct, b)
+                    for b in bases
                 },
                 "rates": {b: E.rates_for(acct, self.sched, b, now) for b in bases},
                 "equity": E.equity(acct, mids),
@@ -264,7 +328,11 @@ class SimService:
     async def orders(self, limit: int = 20) -> dict:
         async with self._lock:
             acct = self._load()
-            adv = await self._advance(acct) if any(o.status == "open" for o in acct.orders.values()) else {"filled": []}
+            adv = (
+                await self._advance(acct)
+                if any(o.status == "open" for o in acct.orders.values())
+                else {"filled": []}
+            )
             rows = sorted(acct.orders.values(), key=lambda o: o.created, reverse=True)
             return {
                 "open": [_order(o) for o in rows if o.status == "open"],
@@ -284,7 +352,9 @@ class SimService:
             for fill in acct.fills:
                 if fill.side != "sell":
                     continue
-                item = closed.setdefault(fill.order_id, {"pnl": D("0"), "timestamp": fill.ts})
+                item = closed.setdefault(
+                    fill.order_id, {"pnl": D("0"), "timestamp": fill.ts}
+                )
                 item["pnl"] += fill.realized_pnl
                 item["timestamp"] = max(item["timestamp"], fill.ts)
             report.update(
@@ -293,7 +363,10 @@ class SimService:
                 volume=str(acct.volume),
                 fees=str(acct.fees_paid),
                 realized_pnl=str(acct.realized_pnl),
-                outcomes=[{"pnl": float(item["pnl"]), "timestamp": item["timestamp"]} for item in closed.values()],
+                outcomes=[
+                    {"pnl": float(item["pnl"]), "timestamp": item["timestamp"]}
+                    for item in closed.values()
+                ],
                 fills=len(acct.fills),
             )
             return report
@@ -310,7 +383,11 @@ class SimService:
         async with self._lock:
             acct = self._load()
             mids = await self._held_mids(acct)
-            llm = count_llm_requests(acct.created, self._ledger_dir) if self._ledger_dir else 0
+            llm = (
+                count_llm_requests(acct.created, self._ledger_dir)
+                if self._ledger_dir
+                else 0
+            )
             return E.cost_report(acct, mids, self._clock(), llm_requests=llm)
 
     # ── owner controls (never exposed to the agent's tools) ──
@@ -319,17 +396,33 @@ class SimService:
         async with self._lock:
             a = self._load()
             return {
-                "limits": E._enc(vars(a.limits)), "costs": E._enc(vars(a.costs)), "start_cash": str(a.start_cash),
-                "created": a.created, "fee_source": self.sched.source, "fee_verification": self.sched.verification,
+                "limits": E._enc(vars(a.limits)),
+                "costs": E._enc(vars(a.costs)),
+                "start_cash": str(a.start_cash),
+                "created": a.created,
+                "fee_source": self.sched.source,
+                "fee_verification": self.sched.verification,
                 "fee_override": a.fee_override,
                 "fee_rates_now_pct": {
-                    "maker": str((E.rates_for(a, self.sched, "BTC", self._clock())[0] * 100).quantize(D("0.0001"))),
-                    "taker": str((E.rates_for(a, self.sched, "BTC", self._clock())[1] * 100).quantize(D("0.0001"))),
+                    "maker": str(
+                        (
+                            E.rates_for(a, self.sched, "BTC", self._clock())[0] * 100
+                        ).quantize(D("0.0001"))
+                    ),
+                    "taker": str(
+                        (
+                            E.rates_for(a, self.sched, "BTC", self._clock())[1] * 100
+                        ).quantize(D("0.0001"))
+                    ),
                 },
             }
 
-    async def set_config(self, limits: dict | None = None, costs: dict | None = None,
-                         fee_override: dict | None = None) -> dict:
+    async def set_config(
+        self,
+        limits: dict | None = None,
+        costs: dict | None = None,
+        fee_override: dict | None = None,
+    ) -> dict:
         """``fee_override``: None leaves it alone, ``{}`` clears it, otherwise a validated what-if."""
         async with self._lock:
             a = self._load()
@@ -350,7 +443,11 @@ class SimService:
         async with self._lock:
             old = self._load()
             fresh = E.Account.new("kraken_default", start_cash, self._clock())
-            fresh.limits, fresh.costs, fresh.fee_override = old.limits, old.costs, old.fee_override
+            fresh.limits, fresh.costs, fresh.fee_override = (
+                old.limits,
+                old.costs,
+                old.fee_override,
+            )
             if self.path.exists():
                 self.path.rename(self.path.with_suffix(f".{int(self._clock())}.bak"))
             self._save(fresh)
@@ -364,17 +461,35 @@ def _fmt(x: D | None) -> str | None:
 
 def _order(o: E.Order) -> dict:
     return {
-        "id": o.id, "client_order_id": o.client_id, "pair": o.pair, "side": o.side, "type": o.type,
-        "qty": str(o.qty), "price": None if o.price is None else str(o.price), "filled": str(o.filled),
-        "remaining": str(o.remaining), "status": o.status, "post_only": o.post_only,
-        "queue_ahead": str(o.queue_ahead), "created": o.created,
+        "id": o.id,
+        "client_order_id": o.client_id,
+        "pair": o.pair,
+        "side": o.side,
+        "type": o.type,
+        "qty": str(o.qty),
+        "price": None if o.price is None else str(o.price),
+        "filled": str(o.filled),
+        "remaining": str(o.remaining),
+        "status": o.status,
+        "post_only": o.post_only,
+        "queue_ahead": str(o.queue_ahead),
+        "created": o.created,
     }
 
 
 def _fill(f: E.Fill) -> dict:
     return {
-        "id": f.id, "order_id": f.order_id, "ts": f.ts, "side": f.side, "pair": f.pair, "price": str(f.price),
-        "qty": str(f.qty), "notional": str(f.notional), "fee": str(f.fee), "liquidity": f.liquidity,
-        "slippage_cost_vs_arrival_mid": str(f.slippage_cost), "realized_pnl": str(f.realized_pnl),
+        "id": f.id,
+        "order_id": f.order_id,
+        "ts": f.ts,
+        "side": f.side,
+        "pair": f.pair,
+        "price": str(f.price),
+        "qty": str(f.qty),
+        "notional": str(f.notional),
+        "fee": str(f.fee),
+        "liquidity": f.liquidity,
+        "slippage_cost_vs_arrival_mid": str(f.slippage_cost),
+        "realized_pnl": str(f.realized_pnl),
         "latency_ms": f.latency_ms,
     }

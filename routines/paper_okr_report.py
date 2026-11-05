@@ -72,7 +72,9 @@ def _early(status: str, today: date, start: date) -> str:
     return status
 
 
-def evaluate(journal: dict, positions: list[dict], spy_now: float | None, today: date) -> dict:
+def evaluate(
+    journal: dict, positions: list[dict], spy_now: float | None, today: date
+) -> dict:
     """Pure scoring of the journal against live positions.
 
     ``positions``: dicts with ``symbol``, ``market_value``, ``unrealized_pl``.
@@ -91,14 +93,23 @@ def evaluate(journal: dict, positions: list[dict], spy_now: float | None, today:
     rows = []
     for sym, p in sorted(held.items()):
         c = p["market_value"] - p["unrealized_pl"]
-        rows.append({"symbol": sym, "cost": c, "pl": p["unrealized_pl"], "ret": (p["unrealized_pl"] / c) if c else 0.0})
+        rows.append(
+            {
+                "symbol": sym,
+                "cost": c,
+                "pl": p["unrealized_pl"],
+                "ret": (p["unrealized_pl"] / c) if c else 0.0,
+            }
+        )
     greens = sum(1 for r in rows if r["ret"] > 0)
     hit_rate = (greens / len(rows)) if rows else None
     review_pct = journal.get("exit_review_pct", -0.10)
     breached = [r["symbol"] for r in rows if r["ret"] <= review_pct]
 
     # Drawdown of basket value from its running peak, over stored snapshots + now.
-    series = [s["basket_value"] for s in journal.get("snapshots", []) if s.get("basket_value")]
+    series = [
+        s["basket_value"] for s in journal.get("snapshots", []) if s.get("basket_value")
+    ]
     if value:
         series.append(value)
     peak, max_dd = 0.0, 0.0
@@ -108,7 +119,9 @@ def evaluate(journal: dict, positions: list[dict], spy_now: float | None, today:
             max_dd = min(max_dd, v / peak - 1)
 
     cap = journal["order_cap"]
-    over_cap = [o["symbol"] for o in journal.get("orders", []) if o["notional"] > cap + 1e-9]
+    over_cap = [
+        o["symbol"] for o in journal.get("orders", []) if o["notional"] > cap + 1e-9
+    ]
     approved = set(journal["approved_symbols"])
     unrecorded = [s for s in held if s not in journal.get("positions", {})]
     off_list = [s for s in held if s not in approved]
@@ -120,13 +133,32 @@ def evaluate(journal: dict, positions: list[dict], spy_now: float | None, today:
     coverage = min(have / expected, 1.0)
 
     return {
-        "cost": cost, "value": value, "basket_ret": basket_ret, "spy_ret": spy_ret, "excess": excess,
-        "rows": rows, "hit_rate": hit_rate, "breached": breached, "max_dd": max_dd,
-        "over_cap": over_cap, "unrecorded": unrecorded, "off_list": off_list,
-        "coverage": coverage, "days_left": (end - today).days, "day_n": (today - start).days,
+        "cost": cost,
+        "value": value,
+        "basket_ret": basket_ret,
+        "spy_ret": spy_ret,
+        "excess": excess,
+        "rows": rows,
+        "hit_rate": hit_rate,
+        "breached": breached,
+        "max_dd": max_dd,
+        "over_cap": over_cap,
+        "unrecorded": unrecorded,
+        "off_list": off_list,
+        "coverage": coverage,
+        "days_left": (end - today).days,
+        "day_n": (today - start).days,
         "kr": {
-            "KR1": _early(_status(None if excess is None else excess >= krs["KR1"]["target"]), today, start),
-            "KR2": _early(_status(None if hit_rate is None else hit_rate >= krs["KR2"]["target"]), today, start),
+            "KR1": _early(
+                _status(None if excess is None else excess >= krs["KR1"]["target"]),
+                today,
+                start,
+            ),
+            "KR2": _early(
+                _status(None if hit_rate is None else hit_rate >= krs["KR2"]["target"]),
+                today,
+                start,
+            ),
             # Basket drawdown inside the limit is on track; a single position at the
             # exit-review line downgrades that to WATCH, not OFF TRACK.
             "KR3": _status(max_dd >= -krs["KR3"]["target"], warn=bool(breached)),
@@ -156,8 +188,11 @@ def format_report(journal: dict, ev: dict, equity: float | None) -> str:
         + (f"; EXIT REVIEW: {', '.join(ev['breached'])}" if ev["breached"] else "")
         + f"  (limit −{100 * krs['KR3']['target']:.0f}%, per-position {pct(journal.get('exit_review_pct', -0.10))})",
         f"{'KR4':4}{ev['kr']['KR4']:10}{krs['KR4']['name']}: "
-        + ("clean" if not (ev["over_cap"] or ev["unrecorded"] or ev["off_list"])
-           else f"over-cap {ev['over_cap']} unrecorded {ev['unrecorded']} off-list {ev['off_list']}"),
+        + (
+            "clean"
+            if not (ev["over_cap"] or ev["unrecorded"] or ev["off_list"])
+            else f"over-cap {ev['over_cap']} unrecorded {ev['unrecorded']} off-list {ev['off_list']}"
+        ),
         f"{'KR5':4}{ev['kr']['KR5']:10}{krs['KR5']['name']}: {100 * ev['coverage']:.0f}% of trading days snapshotted"
         f"  (target ≥ {100 * krs['KR5']['target']:.0f}%)",
         "",
@@ -165,12 +200,16 @@ def format_report(journal: dict, ev: dict, equity: float | None) -> str:
     ]
     for r in sorted(ev["rows"], key=lambda r: -r["ret"]):
         flag = "  <- exit review" if r["symbol"] in ev["breached"] else ""
-        lines.append(f"{r['symbol']:6}{r['cost']:10.2f}{r['pl']:10.2f}{100 * r['ret']:8.2f}%{flag}")
+        lines.append(
+            f"{r['symbol']:6}{r['cost']:10.2f}{r['pl']:10.2f}{100 * r['ret']:8.2f}%{flag}"
+        )
     lines += ["", "Caveat: " + journal["caveat"]]
     return "\n".join(lines)
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str | RoutineResult:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     try:
         journal = load_journal()
     except (FileNotFoundError, json.JSONDecodeError) as e:
@@ -183,23 +222,41 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str | Routi
     try:
         positions = await alpaca.get_positions()
         account = await alpaca.get_account()
-        quote = (await alpaca.latest_quote(journal["benchmark"]["symbol"])).get("quote", {})
+        quote = (await alpaca.latest_quote(journal["benchmark"]["symbol"])).get(
+            "quote", {}
+        )
     except AlpacaAPIError as e:
         return RoutineResult(text=f"Could not read the paper account: {e}", failed=True)
 
     bid, ask = float(quote.get("bp") or 0), float(quote.get("ap") or 0)
     spy_now = (bid + ask) / 2 if bid and ask else (ask or bid or None)
 
-    pos = [{"symbol": p.symbol, "market_value": p.market_value, "unrealized_pl": p.unrealized_pl} for p in positions]
+    pos = [
+        {
+            "symbol": p.symbol,
+            "market_value": p.market_value,
+            "unrealized_pl": p.unrealized_pl,
+        }
+        for p in positions
+    ]
     today = datetime.now(timezone.utc).date()
 
     # Record today's snapshot first, so coverage and drawdown include it.
     if config.record_snapshot:
         value = sum(p["market_value"] for p in pos)
         cost = sum(p["market_value"] - p["unrealized_pl"] for p in pos)
-        snaps = [s for s in journal.get("snapshots", []) if s["date"] != today.isoformat()]
-        snaps.append({"date": today.isoformat(), "basket_value": value, "basket_cost": cost,
-                      "equity": account.equity, "spy": spy_now})
+        snaps = [
+            s for s in journal.get("snapshots", []) if s["date"] != today.isoformat()
+        ]
+        snaps.append(
+            {
+                "date": today.isoformat(),
+                "basket_value": value,
+                "basket_cost": cost,
+                "equity": account.equity,
+                "spy": spy_now,
+            }
+        )
         journal["snapshots"] = snaps
         atomic_write_json(journal_path(), journal)
 

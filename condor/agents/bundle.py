@@ -837,7 +837,8 @@ def parse(data: bytes | str) -> Bundle:
     kind = payload.get("kind")
     if kind != KIND:
         raise BundleError(
-            f"This is not a Griffin agent bundle (kind: {kind!r}, expected " f"'{KIND}')"
+            f"This is not a Griffin agent bundle (kind: {kind!r}, expected "
+            f"'{KIND}')"
         )
     schema = payload.get("schema")
     if schema != SCHEMA:

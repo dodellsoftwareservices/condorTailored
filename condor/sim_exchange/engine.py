@@ -60,7 +60,9 @@ def floor_to(x: Decimal, decimals: int) -> Decimal:
 
 @dataclass(frozen=True)
 class FeeSchedule:
-    spot: tuple[tuple[Decimal, Decimal, Decimal], ...]  # (min_volume, maker, taker) as fractions
+    spot: tuple[
+        tuple[Decimal, Decimal, Decimal], ...
+    ]  # (min_volume, maker, taker) as fractions
     stable: tuple[tuple[Decimal, Decimal, Decimal], ...]
     stable_bases: frozenset[str]
     source: str = ""
@@ -73,7 +75,11 @@ class FeeSchedule:
         def tiers(rows):
             return tuple(
                 sorted(
-                    (D(str(r["min_volume_usd"])), D(r["maker"]) / 100, D(r["taker"]) / 100)
+                    (
+                        D(str(r["min_volume_usd"])),
+                        D(r["maker"]) / 100,
+                        D(r["taker"]) / 100,
+                    )
                     for r in rows
                 )
             )
@@ -133,7 +139,9 @@ class Order:
     arrival_mid: Decimal
     queue_ahead: Decimal = D("0")
     filled: Decimal = D("0")
-    reduce_only: bool = False  # futures only: the order may shrink a position, never grow or flip it
+    reduce_only: bool = (
+        False  # futures only: the order may shrink a position, never grow or flip it
+    )
 
 
 @dataclass
@@ -217,7 +225,14 @@ def _build(cls, raw: dict):
 
 
 def account_from_dict(raw: dict) -> Account:
-    acct = _build(Account, {k: v for k, v in raw.items() if k not in ("orders", "fills", "limits", "costs", "holdings", "basis")})
+    acct = _build(
+        Account,
+        {
+            k: v
+            for k, v in raw.items()
+            if k not in ("orders", "fills", "limits", "costs", "holdings", "basis")
+        },
+    )
     acct.holdings = {k: D(v) for k, v in raw.get("holdings", {}).items()}
     acct.basis = {k: D(v) for k, v in raw.get("basis", {}).items()}
     acct.orders = {k: _build(Order, v) for k, v in raw.get("orders", {}).items()}
@@ -251,13 +266,17 @@ def parse_fee_override(raw: dict | None) -> dict | None:
                 raise ValueError
             out = {"maker": str(maker), "taker": str(taker)}
     except (KeyError, ArithmeticError, ValueError):
-        raise Rejected("fee_override needs maker and taker as percents between 0 and 2, or volume_usd") from None
+        raise Rejected(
+            "fee_override needs maker and taker as percents between 0 and 2, or volume_usd"
+        ) from None
     if raw.get("label"):
         out["label"] = str(raw["label"])[:80]
     return out
 
 
-def rates_for(acct: Account, sched: FeeSchedule, base: str, now: float) -> tuple[Decimal, Decimal]:
+def rates_for(
+    acct: Account, sched: FeeSchedule, base: str, now: float
+) -> tuple[Decimal, Decimal]:
     ov = acct.fee_override
     if ov:
         if "volume_usd" in ov:
@@ -274,13 +293,24 @@ def mid_of(book: dict) -> Decimal:
 
 def reserved_cash(acct: Account, taker_rate: Decimal) -> Decimal:
     return sum(
-        (o.remaining * o.price * (1 + taker_rate) for o in acct.orders.values() if o.status == "open" and o.side == "buy"),
+        (
+            o.remaining * o.price * (1 + taker_rate)
+            for o in acct.orders.values()
+            if o.status == "open" and o.side == "buy"
+        ),
         D("0"),
     )
 
 
 def reserved_base(acct: Account, base: str) -> Decimal:
-    return sum((o.remaining for o in acct.orders.values() if o.status == "open" and o.side == "sell" and o.base == base), D("0"))
+    return sum(
+        (
+            o.remaining
+            for o in acct.orders.values()
+            if o.status == "open" and o.side == "sell" and o.base == base
+        ),
+        D("0"),
+    )
 
 
 def equity(acct: Account, mids: dict[str, Decimal]) -> Decimal:
@@ -294,7 +324,9 @@ def equity(acct: Account, mids: dict[str, Decimal]) -> Decimal:
 
 
 def gross_exposure(acct: Account, mids: dict[str, Decimal]) -> Decimal:
-    return sum((q * mids[b] for b, q in acct.holdings.items() if q and b in mids), D("0"))
+    return sum(
+        (q * mids[b] for b, q in acct.holdings.items() if q and b in mids), D("0")
+    )
 
 
 @dataclass
@@ -311,7 +343,10 @@ def walk_book(levels, *, qty: Decimal, limit_price: Decimal | None, side: str) -
     """Consume ``qty`` from ``levels`` (best first), stopping at ``limit_price``."""
     left, got, cost = qty, D("0"), D("0")
     for price, size in levels:
-        if limit_price is not None and ((side == "buy" and price > limit_price) or (side == "sell" and price < limit_price)):
+        if limit_price is not None and (
+            (side == "buy" and price > limit_price)
+            or (side == "sell" and price < limit_price)
+        ):
             break
         take = min(size, left)
         got += take
@@ -358,44 +393,78 @@ def impact_bps(levels, notional: Decimal, mid: Decimal, side: str) -> Decimal | 
 # ── checks ──────────────────────────────────────────────────────────────
 
 
-def _check_limits(acct: Account, side: str, base: str, notional: Decimal, mids: dict[str, Decimal], *, new_open_order: bool) -> None:
+def _check_limits(
+    acct: Account,
+    side: str,
+    base: str,
+    notional: Decimal,
+    mids: dict[str, Decimal],
+    *,
+    new_open_order: bool,
+) -> None:
     lim = acct.limits
     if notional > lim.max_order_notional:
-        raise Rejected(f"Order notional ${notional:.2f} exceeds the ${lim.max_order_notional} per-order limit")
+        raise Rejected(
+            f"Order notional ${notional:.2f} exceeds the ${lim.max_order_notional} per-order limit"
+        )
     if new_open_order:
         open_n = sum(1 for o in acct.orders.values() if o.status == "open")
         if open_n >= lim.max_open_orders:
-            raise Rejected(f"Already {open_n} open orders; the limit is {lim.max_open_orders}")
+            raise Rejected(
+                f"Already {open_n} open orders; the limit is {lim.max_open_orders}"
+            )
     if side != "buy":
         return
     eq = equity(acct, mids)
     pos_after = acct.holdings.get(base, D("0")) * mids.get(base, D("0")) + notional
     if pos_after > lim.max_position_notional:
-        raise Rejected(f"{base} position would be ${pos_after:.2f}, over the ${lim.max_position_notional} per-asset limit")
+        raise Rejected(
+            f"{base} position would be ${pos_after:.2f}, over the ${lim.max_position_notional} per-asset limit"
+        )
     exp_after = gross_exposure(acct, mids) + notional
     if exp_after > eq * lim.max_gross_exposure_pct / 100:
-        raise Rejected(f"Gross exposure would be ${exp_after:.2f}, over {lim.max_gross_exposure_pct}% of equity (${eq:.2f})")
+        raise Rejected(
+            f"Gross exposure would be ${exp_after:.2f}, over {lim.max_gross_exposure_pct}% of equity (${eq:.2f})"
+        )
     cash_after = acct.cash - notional
     if cash_after < eq * lim.min_cash_reserve_pct / 100:
-        raise Rejected(f"Cash after the order (${cash_after:.2f}) would fall under the {lim.min_cash_reserve_pct}% reserve")
+        raise Rejected(
+            f"Cash after the order (${cash_after:.2f}) would fall under the {lim.min_cash_reserve_pct}% reserve"
+        )
 
 
 def _validate_size(rules, qty: Decimal, notional: Decimal) -> None:
     if qty < rules.ordermin:
-        raise Rejected(f"Quantity {qty} is below the {rules.ordermin} {rules.base} minimum order size")
+        raise Rejected(
+            f"Quantity {qty} is below the {rules.ordermin} {rules.base} minimum order size"
+        )
     if rules.costmin and notional < rules.costmin:
-        raise Rejected(f"Order value ${notional:.2f} is below the ${rules.costmin} minimum")
+        raise Rejected(
+            f"Order value ${notional:.2f} is below the ${rules.costmin} minimum"
+        )
 
 
 def _require_usd(rules) -> None:
     if rules.quote != "USD":
-        raise Rejected(f"Only USD-quoted pairs are simulated; {rules.altname} is quoted in {rules.quote}")
+        raise Rejected(
+            f"Only USD-quoted pairs are simulated; {rules.altname} is quoted in {rules.quote}"
+        )
 
 
 # ── fills ───────────────────────────────────────────────────────────────
 
 
-def _settle(acct: Account, order: Order, *, qty: Decimal, price: Decimal, liquidity: str, fee_rate: Decimal, ts: float, latency_ms: int) -> Fill:
+def _settle(
+    acct: Account,
+    order: Order,
+    *,
+    qty: Decimal,
+    price: Decimal,
+    liquidity: str,
+    fee_rate: Decimal,
+    ts: float,
+    latency_ms: int,
+) -> Fill:
     notional = q5(qty * price)
     fee = q5(notional * fee_rate)
     realized = D("0")
@@ -422,9 +491,21 @@ def _settle(acct: Account, order: Order, *, qty: Decimal, price: Decimal, liquid
     acct.realized_pnl += realized
     acct.volume += notional
     fill = Fill(
-        id=uuid.uuid4().hex[:12], order_id=order.id, ts=ts, pair=order.pair, base=order.base, side=order.side,
-        price=price, qty=qty, notional=notional, fee=fee, liquidity=liquidity, arrival_mid=order.arrival_mid,
-        slippage_cost=slip, realized_pnl=q5(realized), latency_ms=latency_ms,
+        id=uuid.uuid4().hex[:12],
+        order_id=order.id,
+        ts=ts,
+        pair=order.pair,
+        base=order.base,
+        side=order.side,
+        price=price,
+        qty=qty,
+        notional=notional,
+        fee=fee,
+        liquidity=liquidity,
+        arrival_mid=order.arrival_mid,
+        slippage_cost=slip,
+        realized_pnl=q5(realized),
+        latency_ms=latency_ms,
     )
     acct.fills.append(fill)
     return fill
@@ -439,8 +520,17 @@ def _dedupe(acct: Account, client_id: str):
 
 
 def place_market(
-    acct: Account, rules, sched: FeeSchedule, *, side: str, book: dict, now: float, client_id: str = "",
-    qty: Decimal | None = None, quote_amount: Decimal | None = None, latency_ms: int = 0,
+    acct: Account,
+    rules,
+    sched: FeeSchedule,
+    *,
+    side: str,
+    book: dict,
+    now: float,
+    client_id: str = "",
+    qty: Decimal | None = None,
+    quote_amount: Decimal | None = None,
+    latency_ms: int = 0,
     mids: dict[str, Decimal] | None = None,
 ) -> tuple[Order, list[Fill], bool]:
     """Returns (order, fills, duplicate). Raises :class:`Rejected` with the reason."""
@@ -460,7 +550,11 @@ def place_market(
     maker, taker = rates_for(acct, sched, rules.base, now)
     levels = book["asks"] if side == "buy" else book["bids"]
 
-    want = floor_to(qty, rules.lot_decimals) if qty is not None else qty_for_budget(levels, quote_amount, taker, rules.lot_decimals)
+    want = (
+        floor_to(qty, rules.lot_decimals)
+        if qty is not None
+        else qty_for_budget(levels, quote_amount, taker, rules.lot_decimals)
+    )
     w = walk_book(levels, qty=want, limit_price=None, side=side)
     _validate_size(rules, want, w.notional if w.qty else want * mid)
     if w.qty <= 0:
@@ -470,7 +564,9 @@ def place_market(
     if side == "buy":
         avail = acct.cash - reserved_cash(acct, taker)
         if w.notional + fee_est > avail:
-            raise Rejected(f"Needs ${w.notional + fee_est:.2f} but only ${avail:.2f} cash is free")
+            raise Rejected(
+                f"Needs ${w.notional + fee_est:.2f} but only ${avail:.2f} cash is free"
+            )
     else:
         free = acct.holdings.get(rules.base, D("0")) - reserved_base(acct, rules.base)
         if want > free:
@@ -478,10 +574,30 @@ def place_market(
     _check_limits(acct, side, rules.base, w.notional, mids, new_open_order=False)
 
     order = Order(
-        id=uuid.uuid4().hex[:12], client_id=client_id, pair=rules.altname, base=rules.base, side=side, type="market",
-        qty=want, price=None, remaining=want, post_only=False, status="open", created=now, arrival_mid=mid,
+        id=uuid.uuid4().hex[:12],
+        client_id=client_id,
+        pair=rules.altname,
+        base=rules.base,
+        side=side,
+        type="market",
+        qty=want,
+        price=None,
+        remaining=want,
+        post_only=False,
+        status="open",
+        created=now,
+        arrival_mid=mid,
     )
-    fill = _settle(acct, order, qty=w.qty, price=q5(w.avg), liquidity="taker", fee_rate=taker, ts=now, latency_ms=latency_ms)
+    fill = _settle(
+        acct,
+        order,
+        qty=w.qty,
+        price=q5(w.avg),
+        liquidity="taker",
+        fee_rate=taker,
+        ts=now,
+        latency_ms=latency_ms,
+    )
     order.remaining = D("0")
     order.status = "filled" if w.qty == want else "partial_cancelled"
     acct.orders[order.id] = order
@@ -491,8 +607,19 @@ def place_market(
 
 
 def place_limit(
-    acct: Account, rules, sched: FeeSchedule, *, side: str, qty: Decimal, price: Decimal, book: dict, now: float,
-    client_id: str = "", post_only: bool = False, latency_ms: int = 0, mids: dict[str, Decimal] | None = None,
+    acct: Account,
+    rules,
+    sched: FeeSchedule,
+    *,
+    side: str,
+    qty: Decimal,
+    price: Decimal,
+    book: dict,
+    now: float,
+    client_id: str = "",
+    post_only: bool = False,
+    latency_ms: int = 0,
+    mids: dict[str, Decimal] | None = None,
 ) -> tuple[Order, list[Fill], bool]:
     dup = _dedupe(acct, client_id)
     if dup:
@@ -502,7 +629,9 @@ def place_limit(
         raise Rejected("side must be buy or sell")
     want = floor_to(qty, rules.lot_decimals)
     if (price / rules.tick_size) != (price / rules.tick_size).to_integral_value():
-        raise Rejected(f"Price {price} is not a multiple of the {rules.tick_size} tick size")
+        raise Rejected(
+            f"Price {price} is not a multiple of the {rules.tick_size} tick size"
+        )
     mid = mid_of(book)
     mids = {**(mids or {}), rules.base: mid}
     maker, taker = rates_for(acct, sched, rules.base, now)
@@ -510,14 +639,18 @@ def place_limit(
 
     levels = book["asks"] if side == "buy" else book["bids"]
     best = levels[0][0] if levels else None
-    marketable = best is not None and ((side == "buy" and price >= best) or (side == "sell" and price <= best))
+    marketable = best is not None and (
+        (side == "buy" and price >= best) or (side == "sell" and price <= best)
+    )
     if marketable and post_only:
         raise Rejected("Post-only order would cross the book and take liquidity")
 
     if side == "buy":
         avail = acct.cash - reserved_cash(acct, taker)
         if want * price * (1 + taker) > avail:
-            raise Rejected(f"Needs up to ${want * price * (1 + taker):.2f} but only ${avail:.2f} cash is free")
+            raise Rejected(
+                f"Needs up to ${want * price * (1 + taker):.2f} but only ${avail:.2f} cash is free"
+            )
     else:
         free = acct.holdings.get(rules.base, D("0")) - reserved_base(acct, rules.base)
         if want > free:
@@ -525,17 +658,43 @@ def place_limit(
     _check_limits(acct, side, rules.base, want * price, mids, new_open_order=True)
 
     order = Order(
-        id=uuid.uuid4().hex[:12], client_id=client_id, pair=rules.altname, base=rules.base, side=side, type="limit",
-        qty=want, price=price, remaining=want, post_only=post_only, status="open", created=now, arrival_mid=mid,
+        id=uuid.uuid4().hex[:12],
+        client_id=client_id,
+        pair=rules.altname,
+        base=rules.base,
+        side=side,
+        type="limit",
+        qty=want,
+        price=price,
+        remaining=want,
+        post_only=post_only,
+        status="open",
+        created=now,
+        arrival_mid=mid,
     )
     fills: list[Fill] = []
     if marketable:
         w = walk_book(levels, qty=want, limit_price=price, side=side)
         if w.qty > 0:
-            fills.append(_settle(acct, order, qty=w.qty, price=q5(w.avg), liquidity="taker", fee_rate=taker, ts=now, latency_ms=latency_ms))
+            fills.append(
+                _settle(
+                    acct,
+                    order,
+                    qty=w.qty,
+                    price=q5(w.avg),
+                    liquidity="taker",
+                    fee_rate=taker,
+                    ts=now,
+                    latency_ms=latency_ms,
+                )
+            )
     if order.remaining > 0:
         own = book["bids"] if side == "buy" else book["asks"]
-        order.queue_ahead = next((s for p, s in own if p == price), D("0")) if not marketable else D("0")
+        order.queue_ahead = (
+            next((s for p, s in own if p == price), D("0"))
+            if not marketable
+            else D("0")
+        )
         order.status = "open"
     else:
         order.status = "filled"
@@ -555,7 +714,9 @@ def cancel(acct: Account, order_id: str) -> Order:
     return o
 
 
-def on_trades(acct: Account, rules, trades, sched: FeeSchedule, now: float) -> list[Fill]:
+def on_trades(
+    acct: Account, rules, trades, sched: FeeSchedule, now: float
+) -> list[Fill]:
     """Feed the real trade tape to resting orders, oldest trade first."""
     out: list[Fill] = []
     recent = acct.seen_trade_keys.setdefault(rules.altname, [])
@@ -568,7 +729,14 @@ def on_trades(acct: Account, rules, trades, sched: FeeSchedule, now: float) -> l
             seen.add(key)
             recent.append(key)
         rem_vol = t.volume
-        for o in sorted((o for o in acct.orders.values() if o.status == "open" and o.pair == rules.altname), key=lambda o: o.created):
+        for o in sorted(
+            (
+                o
+                for o in acct.orders.values()
+                if o.status == "open" and o.pair == rules.altname
+            ),
+            key=lambda o: o.created,
+        ):
             if t.ts < o.created:
                 continue
             if o.side == "buy" and not (t.side == "s" and t.price <= o.price):
@@ -586,7 +754,18 @@ def on_trades(acct: Account, rules, trades, sched: FeeSchedule, now: float) -> l
             if got <= 0:
                 continue
             maker, _ = rates_for(acct, sched, o.base, t.ts)
-            out.append(_settle(acct, o, qty=got, price=o.price, liquidity="maker", fee_rate=maker, ts=t.ts, latency_ms=0))
+            out.append(
+                _settle(
+                    acct,
+                    o,
+                    qty=got,
+                    price=o.price,
+                    liquidity="maker",
+                    fee_rate=maker,
+                    ts=t.ts,
+                    latency_ms=0,
+                )
+            )
             if o.remaining <= 0:
                 o.status = "filled"
     if len(recent) > 4096:
@@ -606,21 +785,34 @@ def portfolio(acct: Account, mids: dict[str, Decimal], now: float) -> dict:
         mid = mids[base]
         cost = acct.basis.get(base, D("0"))
         value = qty * mid
-        positions.append({
-            "asset": base, "qty": str(qty), "mid": str(mid), "value": str(q5(value)),
-            "avg_cost": str(q5(cost / qty)), "unrealized_pnl": str(q5(value - cost)),
-            "unrealized_pct": str(((value / cost - 1) * 100).quantize(D("0.01"))) if cost else "0",
-        })
+        positions.append(
+            {
+                "asset": base,
+                "qty": str(qty),
+                "mid": str(mid),
+                "value": str(q5(value)),
+                "avg_cost": str(q5(cost / qty)),
+                "unrealized_pnl": str(q5(value - cost)),
+                "unrealized_pct": (
+                    str(((value / cost - 1) * 100).quantize(D("0.01"))) if cost else "0"
+                ),
+            }
+        )
     return {
-        "equity": str(q5(eq)), "cash": str(q5(acct.cash)), "start_cash": str(acct.start_cash),
+        "equity": str(q5(eq)),
+        "cash": str(q5(acct.cash)),
+        "start_cash": str(acct.start_cash),
         "total_return_pct": str(((eq / acct.start_cash - 1) * 100).quantize(D("0.01"))),
-        "gross_exposure": str(q5(gross_exposure(acct, mids))), "positions": positions,
+        "gross_exposure": str(q5(gross_exposure(acct, mids))),
+        "positions": positions,
         "open_orders": sum(1 for o in acct.orders.values() if o.status == "open"),
         "volume_30d": str(q5(volume_30d(acct, now))),
     }
 
 
-def cost_report(acct: Account, mids: dict[str, Decimal], now: float, llm_requests: int = 0) -> dict:
+def cost_report(
+    acct: Account, mids: dict[str, Decimal], now: float, llm_requests: int = 0
+) -> dict:
     eq = equity(acct, mids)
     days = D(str(max(now - acct.created, 0))) / D(str(DAY))
     llm = acct.costs.llm_cost_per_request_usd * llm_requests
@@ -637,21 +829,29 @@ def cost_report(acct: Account, mids: dict[str, Decimal], now: float, llm_request
     executed: dict[str, dict] = {}
     for fill in acct.fills:
         order = acct.orders.get(fill.order_id)
-        row = executed.setdefault(fill.order_id, {
-            "order_id": fill.order_id,
-            "client_order_id": order.client_id if order else "",
-            "pair": f"{fill.base}-USD",
-            "side": fill.side,
-            "last_fill_ts": fill.ts,
-            "fill_count": 0,
-            "qty": D("0"),
-            "notional": D("0"),
-            "fee": D("0"),
-            "realized_pnl": D("0"),
-        })
+        row = executed.setdefault(
+            fill.order_id,
+            {
+                "order_id": fill.order_id,
+                "client_order_id": order.client_id if order else "",
+                "pair": f"{fill.base}-USD",
+                "side": fill.side,
+                "last_fill_ts": fill.ts,
+                "fill_count": 0,
+                "qty": D("0"),
+                "notional": D("0"),
+                "fee": D("0"),
+                "realized_pnl": D("0"),
+            },
+        )
         row["last_fill_ts"] = max(row["last_fill_ts"], fill.ts)
         row["fill_count"] += 1
-        for key, value in (("qty", fill.qty), ("notional", fill.notional), ("fee", fill.fee), ("realized_pnl", fill.realized_pnl)):
+        for key, value in (
+            ("qty", fill.qty),
+            ("notional", fill.notional),
+            ("fee", fill.fee),
+            ("realized_pnl", fill.realized_pnl),
+        ):
             row[key] += value
     recent_executed_orders = [
         {
@@ -662,7 +862,9 @@ def cost_report(acct: Account, mids: dict[str, Decimal], now: float, llm_request
             "realized_pnl": str(q5(row["realized_pnl"])),
             "calibration": row["client_order_id"].startswith("cal-"),
         }
-        for row in sorted(executed.values(), key=lambda item: item["last_fill_ts"], reverse=True)[:20]
+        for row in sorted(
+            executed.values(), key=lambda item: item["last_fill_ts"], reverse=True
+        )[:20]
     ]
     return {
         "net_pnl_after_all_costs": str(q5(net)),
@@ -674,7 +876,9 @@ def cost_report(acct: Account, mids: dict[str, Decimal], now: float, llm_request
             "llm_requests": llm_requests,
             "llm_cost": str(q5(llm)),
             "fixed_running_cost": str(q5(fixed)),
-            "total_execution_and_operating": str(q5(acct.fees_paid + acct.slippage_cost + llm + fixed)),
+            "total_execution_and_operating": str(
+                q5(acct.fees_paid + acct.slippage_cost + llm + fixed)
+            ),
         },
         "traded_volume": str(q5(vol)),
         "fees_bps_of_volume": bps(acct.fees_paid),

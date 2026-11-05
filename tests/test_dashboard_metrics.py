@@ -181,6 +181,14 @@ def api_client(monkeypatch):
     monkeypatch.setattr(dashboard, "_cache", {})
     monkeypatch.setattr(dashboard.time, "time", lambda: NOW)
     monkeypatch.setenv("EQUITY_MAX_ORDER_NOTIONAL", "2500")
+    # `require_admin` re-reads the role from ConfigManager rather than trusting
+    # the WebUser claim, so the fixture must answer is_admin() itself. Without
+    # this the tests pass only on a machine whose local config.yml happens to
+    # make user 1 an admin, and fail with a 403 on a clean clone / in CI.
+    monkeypatch.setattr(
+        "condor.web.auth.get_config_manager",
+        lambda: SimpleNamespace(is_admin=lambda uid: uid == 1),
+    )
     app = FastAPI()
     app.include_router(dashboard.router)
     app.dependency_overrides[get_current_user] = lambda: WebUser(id=1, role="admin")

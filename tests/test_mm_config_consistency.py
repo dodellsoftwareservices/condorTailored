@@ -238,7 +238,10 @@ def test_the_playbook_states_the_order():
 def test_the_agents_routines_are_what_the_skill_can_run():
     shipped = {p.stem for p in (MM / "routines").glob("*.py")}
 
-    assert shipped == {"mm_dashboard", "market_analyzer"}  # hip3_market_scanner removed: venue region-blocked
+    assert shipped == {
+        "mm_dashboard",
+        "market_analyzer",
+    }  # hip3_market_scanner removed: venue region-blocked
     assert "mm_bot_report" not in shipped
 
 

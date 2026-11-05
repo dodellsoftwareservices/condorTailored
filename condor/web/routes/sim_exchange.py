@@ -56,7 +56,9 @@ def get_mm_service() -> SimService:
     slots or inventory with the LLM agent's account."""
     global _mm_service
     if _mm_service is None:
-        _mm_service = SimService(KrakenPublicClient(), data_dir() / "sim_exchange" / "kraken_mm.json")
+        _mm_service = SimService(
+            KrakenPublicClient(), data_dir() / "sim_exchange" / "kraken_mm.json"
+        )
     return _mm_service
 
 
@@ -77,9 +79,14 @@ def _dec(value: str | float | None, name: str) -> Decimal | None:
     try:
         d = Decimal(str(value))
     except InvalidOperation:
-        raise HTTPException(400, {"code": "sim_bad_number", "message": f"{name} is not a number"}) from None
+        raise HTTPException(
+            400, {"code": "sim_bad_number", "message": f"{name} is not a number"}
+        ) from None
     if not d.is_finite() or d <= 0:
-        raise HTTPException(400, {"code": "sim_bad_number", "message": f"{name} must be a positive number"})
+        raise HTTPException(
+            400,
+            {"code": "sim_bad_number", "message": f"{name} must be a positive number"},
+        )
     return d
 
 
@@ -90,7 +97,9 @@ async def _guard(coro):
         raise HTTPException(400, {"code": "sim_rejected", "message": str(e)}) from None
     except KrakenPublicError as e:
         logger.warning("Kraken public data error: %s", e)
-        raise HTTPException(502, {"code": "kraken_public_error", "message": str(e)}) from None
+        raise HTTPException(
+            502, {"code": "kraken_public_error", "message": str(e)}
+        ) from None
 
 
 class OrderRequest(BaseModel):
@@ -126,7 +135,13 @@ async def snapshot(
     # A plain int, checked here: FastAPI will not coerce the query string "15" to an
     # integer Literal, which made every call that sent the parameter a 422.
     if candle_minutes not in CANDLE_MINUTES:
-        raise HTTPException(400, {"code": "sim_bad_candle_minutes", "message": f"candle_minutes must be one of {list(CANDLE_MINUTES)}"})
+        raise HTTPException(
+            400,
+            {
+                "code": "sim_bad_candle_minutes",
+                "message": f"candle_minutes must be one of {list(CANDLE_MINUTES)}",
+            },
+        )
     return await _guard(get_sim_service().snapshot(pair, candles, candle_minutes))
 
 
@@ -135,9 +150,14 @@ async def place_order(body: OrderRequest, user: WebUser = Depends(get_current_us
     require_admin(user)
     return await _guard(
         get_sim_service().place(
-            pair=body.pair, side=body.side, type=body.type, qty=_dec(body.qty, "qty"),
-            quote_amount=_dec(body.quote_amount, "quote_amount"), price=_dec(body.price, "price"),
-            post_only=body.post_only, client_order_id=body.client_order_id,
+            pair=body.pair,
+            side=body.side,
+            type=body.type,
+            qty=_dec(body.qty, "qty"),
+            quote_amount=_dec(body.quote_amount, "quote_amount"),
+            price=_dec(body.price, "price"),
+            post_only=body.post_only,
+            client_order_id=body.client_order_id,
         )
     )
 
@@ -181,7 +201,9 @@ async def get_config(user: WebUser = Depends(get_current_user)):
 @router.put("/config")
 async def put_config(body: ConfigRequest, user: WebUser = Depends(get_current_user)):
     require_admin(user)
-    return await _guard(get_sim_service().set_config(body.limits, body.costs, body.fee_override))
+    return await _guard(
+        get_sim_service().set_config(body.limits, body.costs, body.fee_override)
+    )
 
 
 @router.post("/reset")
@@ -230,7 +252,9 @@ async def mm_start(body: MMStartRequest, user: WebUser = Depends(get_current_use
 async def put_mm_config(body: ConfigRequest, user: WebUser = Depends(get_current_user)):
     """Owner-only knobs for the maker's account, e.g. a fee what-if."""
     require_admin(user)
-    return await _guard(get_mm_service().set_config(body.limits, body.costs, body.fee_override))
+    return await _guard(
+        get_mm_service().set_config(body.limits, body.costs, body.fee_override)
+    )
 
 
 @router.get("/mm/config")
@@ -270,7 +294,13 @@ async def mm_costs(user: WebUser = Depends(get_current_user)):
 async def mm_reset(body: ResetRequest, user: WebUser = Depends(get_current_user)):
     require_admin(user)
     if get_mm_runner().running:
-        raise HTTPException(409, {"code": "mm_running", "message": "Stop the market maker before resetting its account"})
+        raise HTTPException(
+            409,
+            {
+                "code": "mm_running",
+                "message": "Stop the market maker before resetting its account",
+            },
+        )
     return await _guard(get_mm_service().reset(_dec(body.start_cash, "start_cash")))
 
 
@@ -287,7 +317,9 @@ def get_fut_service() -> FuturesService:
     if _fut_service is None:
         base = data_dir()
         _fut_service = FuturesService(
-            KrakenFuturesClient(), base / "sim_exchange" / "kraken_futures.json", ledger_dir=base / "llm_budget"
+            KrakenFuturesClient(),
+            base / "sim_exchange" / "kraken_futures.json",
+            ledger_dir=base / "llm_budget",
         )
     return _fut_service
 
@@ -312,17 +344,31 @@ async def fut_snapshot(
 ):
     require_admin(user)
     if candle_minutes not in FUT_CANDLE_MINUTES:
-        raise HTTPException(400, {"code": "sim_bad_candle_minutes", "message": f"candle_minutes must be one of {list(FUT_CANDLE_MINUTES)}"})
+        raise HTTPException(
+            400,
+            {
+                "code": "sim_bad_candle_minutes",
+                "message": f"candle_minutes must be one of {list(FUT_CANDLE_MINUTES)}",
+            },
+        )
     return await _guard(get_fut_service().snapshot(symbol, candles, candle_minutes))
 
 
 @router.post("/fut/orders")
-async def fut_place_order(body: FutOrderRequest, user: WebUser = Depends(get_current_user)):
+async def fut_place_order(
+    body: FutOrderRequest, user: WebUser = Depends(get_current_user)
+):
     require_admin(user)
     return await _guard(
         get_fut_service().place(
-            symbol=body.symbol, side=body.side, type=body.type, qty=_dec(body.qty, "qty"), price=_dec(body.price, "price"),
-            post_only=body.post_only, reduce_only=body.reduce_only, client_order_id=body.client_order_id,
+            symbol=body.symbol,
+            side=body.side,
+            type=body.type,
+            qty=_dec(body.qty, "qty"),
+            price=_dec(body.price, "price"),
+            post_only=body.post_only,
+            reduce_only=body.reduce_only,
+            client_order_id=body.client_order_id,
         )
     )
 
@@ -358,9 +404,13 @@ async def fut_get_config(user: WebUser = Depends(get_current_user)):
 
 
 @router.put("/fut/config")
-async def fut_put_config(body: ConfigRequest, user: WebUser = Depends(get_current_user)):
+async def fut_put_config(
+    body: ConfigRequest, user: WebUser = Depends(get_current_user)
+):
     require_admin(user)
-    return await _guard(get_fut_service().set_config(body.limits, body.costs, body.fee_override))
+    return await _guard(
+        get_fut_service().set_config(body.limits, body.costs, body.fee_override)
+    )
 
 
 @router.post("/fut/reset")

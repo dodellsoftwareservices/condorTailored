@@ -35,8 +35,16 @@ class FakeKraken:
 
     async def ticker(self, alt):
         mid = (D(self.bid) + D(self.ask)) / 2
-        return {"bid": D(self.bid), "ask": D(self.ask), "last": mid, "volume_24h": D("5"), "vwap_24h": mid,
-                "trades_24h": 9, "high_24h": mid, "low_24h": mid}
+        return {
+            "bid": D(self.bid),
+            "ask": D(self.ask),
+            "last": mid,
+            "volume_24h": D("5"),
+            "vwap_24h": mid,
+            "trades_24h": 9,
+            "high_24h": mid,
+            "low_24h": mid,
+        }
 
     async def trades(self, alt, since=None):
         out, self.tape = self.tape, []
@@ -53,8 +61,14 @@ def make(tmp_path, **cfg):
     async def nosleep(_):
         return None
 
-    svc = SimService(k, tmp_path / "mm.json", E.FeeSchedule.load(), clock=lambda: next(clock), sleeper=nosleep,
-                     start_cash=D("10000"))
+    svc = SimService(
+        k,
+        tmp_path / "mm.json",
+        E.FeeSchedule.load(),
+        clock=lambda: next(clock),
+        sleeper=nosleep,
+        start_cash=D("10000"),
+    )
     base = {"pairs": ["BTC-USD"], "max_quote_age_sec": 10**9, "refresh_sec": 5}
     base.update(cfg)
     mm = MarketMaker(svc, MMConfig.from_dict(base), clock=svc._clock)
@@ -68,7 +82,9 @@ def test_fee_aware_half_spread_covers_the_maker_fee_plus_margin():
     cfg = MMConfig.from_dict({"pairs": ["BTC-USD"]})
     q = compute_quotes(cfg, RULES, book(), maker_rate=D("0.004"), free_base=D("0"))
     assert q.half_spread_bps == D("45")  # 40 bps fee + 10/2 margin
-    assert q.bid_price <= D("99.5") and q.ask_price is None  # spot cannot short: no ask without inventory
+    assert (
+        q.bid_price <= D("99.5") and q.ask_price is None
+    )  # spot cannot short: no ask without inventory
     assert q.bid_price % D("0.5") == 0  # on the tick
 
 
@@ -79,22 +95,37 @@ def test_quotes_never_sit_inside_the_touch_even_with_a_tiny_spread_setting():
 
 
 def test_inventory_leans_quotes_down_and_stops_the_bid_at_the_cap():
-    cfg = MMConfig.from_dict({"pairs": ["BTC-USD"], "half_spread_bps": "100", "max_inventory_notional": "1000"})
+    cfg = MMConfig.from_dict(
+        {
+            "pairs": ["BTC-USD"],
+            "half_spread_bps": "100",
+            "max_inventory_notional": "1000",
+        }
+    )
     flat = compute_quotes(cfg, RULES, book(), maker_rate=D("0.004"), free_base=D("0"))
     long_ = compute_quotes(cfg, RULES, book(), maker_rate=D("0.004"), free_base=D("5"))
     assert long_.bid_price < flat.bid_price  # wants to buy less
-    full = compute_quotes(cfg, RULES, book(), maker_rate=D("0.004"), free_base=D("10"))  # $1,000 held
+    full = compute_quotes(
+        cfg, RULES, book(), maker_rate=D("0.004"), free_base=D("10")
+    )  # $1,000 held
     assert full.bid_price is None and full.ask_price is not None
 
 
 def test_ask_size_never_exceeds_what_is_held():
-    cfg = MMConfig.from_dict({"pairs": ["BTC-USD"], "half_spread_bps": "50", "order_notional": "250"})
+    cfg = MMConfig.from_dict(
+        {"pairs": ["BTC-USD"], "half_spread_bps": "50", "order_notional": "250"}
+    )
     q = compute_quotes(cfg, RULES, book(), maker_rate=D("0.004"), free_base=D("0.5"))
     assert q.ask_qty == D("0.5")
 
 
 def test_bad_config_is_refused():
-    for bad in ({"pairs": ["BTC-EUR"]}, {"refresh_sec": 0.5}, {"order_notional": "5000", "max_inventory_notional": "100"}, {"half_spread_bps": "0"}):
+    for bad in (
+        {"pairs": ["BTC-EUR"]},
+        {"refresh_sec": 0.5},
+        {"order_notional": "5000", "max_inventory_notional": "100"},
+        {"half_spread_bps": "0"},
+    ):
         with pytest.raises(ValueError):
             MMConfig.from_dict(bad)
 
@@ -103,7 +134,9 @@ def test_bad_config_is_refused():
 
 
 def open_mm(svc):
-    return [o for o in run(svc.orders())["open"] if o["client_order_id"].startswith("mm-")]
+    return [
+        o for o in run(svc.orders())["open"] if o["client_order_id"].startswith("mm-")
+    ]
 
 
 def test_first_cycle_posts_a_post_only_bid_and_a_steady_market_is_left_alone(tmp_path):
@@ -113,7 +146,9 @@ def test_first_cycle_posts_a_post_only_bid_and_a_steady_market_is_left_alone(tmp
     assert [o["side"] for o in orders] == ["buy"] and orders[0]["post_only"] is True
     placed, cancelled = mm.stats.quotes_placed, mm.stats.quotes_cancelled
     run(mm.step())
-    assert mm.stats.quotes_placed == placed and mm.stats.quotes_cancelled == cancelled  # no churn
+    assert (
+        mm.stats.quotes_placed == placed and mm.stats.quotes_cancelled == cancelled
+    )  # no churn
 
 
 def test_a_drifted_quote_is_cancelled_and_replaced(tmp_path):
@@ -163,7 +198,13 @@ def test_runner_loops_stops_and_pulls_its_quotes(tmp_path):
         async def nosleep(_):
             return None
 
-        svc = SimService(k, tmp_path / "r.json", E.FeeSchedule.load(), sleeper=nosleep, start_cash=D("10000"))
+        svc = SimService(
+            k,
+            tmp_path / "r.json",
+            E.FeeSchedule.load(),
+            sleeper=nosleep,
+            start_cash=D("10000"),
+        )
         runner = MMRunner(svc)
         await runner.start(MMConfig.from_dict({"pairs": ["BTC-USD"], "refresh_sec": 2}))
         for _ in range(100):
@@ -171,10 +212,16 @@ def test_runner_loops_stops_and_pulls_its_quotes(tmp_path):
             if runner.maker.stats.quotes_placed:
                 break
         with pytest.raises(RuntimeError):
-            await runner.start(MMConfig.from_dict({"pairs": ["BTC-USD"]}))  # one maker at a time
+            await runner.start(
+                MMConfig.from_dict({"pairs": ["BTC-USD"]})
+            )  # one maker at a time
         st = await runner.status()
         out = await runner.stop()
-        left = [o for o in (await svc.orders())["open"] if o["client_order_id"].startswith("mm-")]
+        left = [
+            o
+            for o in (await svc.orders())["open"]
+            if o["client_order_id"].startswith("mm-")
+        ]
         return st, out, left
 
     st, out, left = run(go())
@@ -182,7 +229,9 @@ def test_runner_loops_stops_and_pulls_its_quotes(tmp_path):
     assert out["quotes_pulled"] >= 1 and left == []
 
 
-def test_runner_survives_a_timeout_and_a_stray_error_but_halts_if_it_never_clears(tmp_path):
+def test_runner_survives_a_timeout_and_a_stray_error_but_halts_if_it_never_clears(
+    tmp_path,
+):
     from condor.sim_exchange.market_maker import MMRunner
 
     async def go(fail_forever):
@@ -191,18 +240,29 @@ def test_runner_survives_a_timeout_and_a_stray_error_but_halts_if_it_never_clear
         async def nosleep(_):
             return None
 
-        svc = SimService(k, tmp_path / ("f.json" if fail_forever else "s.json"), E.FeeSchedule.load(), sleeper=nosleep,
-                         start_cash=D("10000"))
+        svc = SimService(
+            k,
+            tmp_path / ("f.json" if fail_forever else "s.json"),
+            E.FeeSchedule.load(),
+            sleeper=nosleep,
+            start_cash=D("10000"),
+        )
         runner = MMRunner(svc)
         runner.MAX_CONSECUTIVE_FAILURES = 3
-        maker = MarketMaker(svc, MMConfig.from_dict({"pairs": ["BTC-USD"], "refresh_sec": 2}))
-        maker.cfg.refresh_sec = 0.01  # validated at construction; shrink afterwards so the test is fast
+        maker = MarketMaker(
+            svc, MMConfig.from_dict({"pairs": ["BTC-USD"], "refresh_sec": 2})
+        )
+        maker.cfg.refresh_sec = (
+            0.01  # validated at construction; shrink afterwards so the test is fast
+        )
         real_step, calls = maker.step, {"n": 0}
 
         async def flaky():
             calls["n"] += 1
             if fail_forever or calls["n"] <= 2:
-                raise (RuntimeError("boom") if calls["n"] % 2 else asyncio.TimeoutError())
+                raise (
+                    RuntimeError("boom") if calls["n"] % 2 else asyncio.TimeoutError()
+                )
             return await real_step()
 
         maker.step = flaky
@@ -217,9 +277,13 @@ def test_runner_survives_a_timeout_and_a_stray_error_but_halts_if_it_never_clear
         return out
 
     halted, errors, placed = run(go(False))
-    assert not halted and errors >= 2 and placed >= 1  # two blips, then it carried on quoting
+    assert (
+        not halted and errors >= 2 and placed >= 1
+    )  # two blips, then it carried on quoting
     halted, errors, placed = run(go(True))
-    assert halted == "crashed: see logs" and errors >= 3  # never clears -> quotes pulled, loudly halted
+    assert (
+        halted == "crashed: see logs" and errors >= 3
+    )  # never clears -> quotes pulled, loudly halted
 
 
 def test_mm_routes_exist_and_every_one_demands_an_admin():
@@ -228,7 +292,12 @@ def test_mm_routes_exist_and_every_one_demands_an_admin():
     from condor.web.routes import sim_exchange as routes
 
     mm = [r for r in routes.router.routes if "/mm" in r.path]
-    assert {r.path for r in mm} >= {"/sim/kraken/mm", "/sim/kraken/mm/start", "/sim/kraken/mm/stop", "/sim/kraken/mm/portfolio"}
+    assert {r.path for r in mm} >= {
+        "/sim/kraken/mm",
+        "/sim/kraken/mm/start",
+        "/sim/kraken/mm/stop",
+        "/sim/kraken/mm/portfolio",
+    }
     for r in mm:
         assert "require_admin(user)" in inspect.getsource(r.endpoint), r.path
 
@@ -243,15 +312,28 @@ def test_autostart_file_exists_only_while_running_and_a_restart_resumes_it(tmp_p
             return None
 
         def new_runner(name):
-            svc = SimService(FakeKraken(), tmp_path / name, E.FeeSchedule.load(), sleeper=nosleep, start_cash=D("10000"))
+            svc = SimService(
+                FakeKraken(),
+                tmp_path / name,
+                E.FeeSchedule.load(),
+                sleeper=nosleep,
+                start_cash=D("10000"),
+            )
             return MMRunner(svc, autostart_path=flag)
 
         r1 = new_runner("a.json")
         assert await r1.resume_from_disk() is False  # nothing to resume
-        await r1.start(MMConfig.from_dict({"pairs": ["BTC-USD", "ETH-USD"], "order_notional": "100"}))
+        await r1.start(
+            MMConfig.from_dict(
+                {"pairs": ["BTC-USD", "ETH-USD"], "order_notional": "100"}
+            )
+        )
         assert flag.exists()
         r2 = new_runner("b.json")  # a new process after a restart
-        assert await r2.resume_from_disk() is True and r2.maker.cfg.pairs == ("BTC-USD", "ETH-USD")
+        assert await r2.resume_from_disk() is True and r2.maker.cfg.pairs == (
+            "BTC-USD",
+            "ETH-USD",
+        )
         assert r2.maker.cfg.order_notional == D("100")
         await r2.stop()
         assert not flag.exists()  # stopped on purpose: stays stopped

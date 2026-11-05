@@ -162,7 +162,9 @@ def test_coming_back_on_the_target_commit_is_a_success():
         TARGET,
         state=run_module.RESTARTING,
         target_commit=TARGET,
-        steps=[run_module.Step("condor.restart", "Restarting Griffin", state="running")],
+        steps=[
+            run_module.Step("condor.restart", "Restarting Griffin", state="running")
+        ],
     )
     assert run is not None
     assert run.state == "succeeded"
@@ -176,7 +178,9 @@ def test_coming_back_on_a_different_commit_is_a_failure():
         OTHER,
         state=run_module.RESTARTING,
         target_commit=TARGET,
-        steps=[run_module.Step("condor.restart", "Restarting Griffin", state="running")],
+        steps=[
+            run_module.Step("condor.restart", "Restarting Griffin", state="running")
+        ],
     )
     assert run is not None
     assert run.state == "failed"

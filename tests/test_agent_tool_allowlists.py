@@ -65,9 +65,18 @@ NOT_CALLS: dict[str, set[str]] = {
 #: held to ``SEALED_FORBIDDEN`` below instead of the family rule.
 SEALED = {"sim_crypto_trader", "sim_futures_trader"}
 SEALED_FORBIDDEN = {
-    "run_code", "delegate", "manage_routines", "manage_agent_controllers", "manage_agents",
-    "manage_loops", "control_agent", "manage_servers", "manage_skill", "manage_memory",
-    "send_notification", "get_available_models",
+    "run_code",
+    "delegate",
+    "manage_routines",
+    "manage_agent_controllers",
+    "manage_agents",
+    "manage_loops",
+    "control_agent",
+    "manage_servers",
+    "manage_skill",
+    "manage_memory",
+    "send_notification",
+    "get_available_models",
 }
 
 
