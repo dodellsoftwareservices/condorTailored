@@ -937,6 +937,14 @@ async def startup(application: Application) -> None:
     except Exception:
         logger.exception("Dashboard equity sampler registration failed")
 
+    # Keep the monthly spend guard honest against the provider's own usage figure.
+    try:
+        from condor.llm.provider_usage import register_jobs as register_llm_usage_jobs
+
+        register_llm_usage_jobs(application)
+    except Exception:
+        logger.exception("Provider usage sync registration failed")
+
     # Start file watcher
     asyncio.create_task(watch_and_reload(application))
 

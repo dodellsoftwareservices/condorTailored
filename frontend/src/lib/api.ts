@@ -411,6 +411,23 @@ export interface ConnectorBalance {
   note?: string | null;
 }
 
+/** GET /llm/spend: the monthly paid-model cap and where it stands (admin only). */
+export type LlmSpend =
+  | { enabled: false }
+  | {
+      enabled: true;
+      status: "ok" | "paused";
+      reason?: string;
+      cap_usd: number;
+      reserve_usd: number;
+      month?: string;
+      counted_usd?: number;
+      headroom_usd?: number;
+      unpriced_responses?: number;
+      reserved_in_flight_usd?: number;
+      allowed_paid_models: string[];
+    };
+
 /** The simulated Kraken account: Decimal strings, as the sim exchange serialises them. */
 export interface SimPortfolio {
   equity: string;
@@ -3247,6 +3264,7 @@ export const api = {
   getSimMmCosts: () => apiFetch<SimCosts>("/api/v1/sim/kraken/mm/costs"),
   getSimMmStatus: () => apiFetch<SimMmStatus>("/api/v1/sim/kraken/mm"),
   getSimFutPortfolio: () => apiFetch<SimPortfolio>("/api/v1/sim/kraken/fut/portfolio"),
+  getLlmSpend: () => apiFetch<LlmSpend>("/api/v1/llm/spend"),
   getSimFutCosts: () => apiFetch<SimCosts>("/api/v1/sim/kraken/fut/costs"),
 
   getPortfolioHistory: (server: string, range = "1D", breakdown = false, liveOnly = false) =>
