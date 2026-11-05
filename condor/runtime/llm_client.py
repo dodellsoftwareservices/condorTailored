@@ -44,6 +44,7 @@ def build_llm_client(
     strict_custom_endpoint: bool = False,
     budget_caller: str | None = None,
     unattended: bool = False,
+    reasoning_effort: str | None = None,
 ) -> acp_client.ACPClient | pydantic_ai.PydanticAIClient:
     """Build (but do not start) the right client for ``agent_key``.
 
@@ -91,6 +92,8 @@ def build_llm_client(
             extra["budget_caller"] = budget_caller
         if unattended:
             extra["unattended"] = True
+        if reasoning_effort:
+            extra["reasoning_effort"] = reasoning_effort
         return pydantic_ai.PydanticAIClient(
             model=agent_key,
             mcp_servers=mcp_servers,

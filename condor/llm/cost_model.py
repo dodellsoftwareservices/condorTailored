@@ -52,13 +52,28 @@ class CostTrackingModel(WrapperModel):
             )
         return settings
 
+    @property
+    def _free(self) -> bool:
+        return self.model_key.startswith("openrouter:") and is_free_model(
+            self.model_key
+        )
+
+    def _unpriced(self) -> None:
+        """Book an uncertain response as spend, unless the model is free.
+
+        A free model costs nothing whatever happens to the request (a timeout, a
+        cancelled stream), so an uncertain outcome must not eat into a dollar cap.
+        """
+        if self.governor.config.enabled and not self._free:
+            self.governor.ledger.record_unpriced(self.caller)
+
     def _record(self, response):
         if not self.governor.config.enabled:
             return
         try:
             cost = response_cost_usd(response, self.model_key)
         except Exception:
-            self.governor.ledger.record_unpriced(self.caller)
+            self._unpriced()
         else:
             self.governor.ledger.record_cost(self.caller, cost)
 
@@ -76,7 +91,7 @@ class CostTrackingModel(WrapperModel):
                 # A failed/cancelled transport may have spent tokens upstream, unless the
                 # provider rejected the request outright.
                 if self.governor.config.enabled and not rejected_before_generation(exc):
-                    self.governor.ledger.record_unpriced(self.caller)
+                    self._unpriced()
                 raise
             self._record(response)
             return response
@@ -113,7 +128,7 @@ class CostTrackingModel(WrapperModel):
                         final = response.get()
                     except Exception:
                         if self.governor.config.enabled:
-                            self.governor.ledger.record_unpriced(self.caller)
+                            self._unpriced()
                     else:
                         self._record(final)
                         if (
@@ -125,8 +140,8 @@ class CostTrackingModel(WrapperModel):
                             )
                         ):
                             # Interrupted streams may omit final billed usage.
-                            self.governor.ledger.record_unpriced(self.caller)
+                            self._unpriced()
                 elif (
                     not budget_blocked and not rejected and self.governor.config.enabled
                 ):
-                    self.governor.ledger.record_unpriced(self.caller)
+                    self._unpriced()

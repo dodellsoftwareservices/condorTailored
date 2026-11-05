@@ -45,6 +45,12 @@ MAX_QUESTION_CHARS = 300
 MAX_BRIEF_CHARS = 1200
 #: Per attempt. Worst case is len(models) * this, which must stay under the tool's 150s.
 ANALYST_TIMEOUT_SEC = 40.0
+#: Measured 2026-11-05 against nemotron-3.5-super-vl:free with the real analyst prompt:
+#: with no reasoning setting, or "low", the model spends its whole token budget thinking
+#: and returns an EMPTY answer (600/600 reasoning tokens, 0 content characters); with
+#: "none" it returns a complete brief in 2-5 s. Advice over precomputed statistics does
+#: not need chain-of-thought, and the desk's own (paid) model does the real reasoning.
+ANALYST_REASONING_EFFORT = "none"
 #: One consult per desk per window. A model that loops on the tool gets the cached answer.
 #: Thirty minutes keeps the worst case near 430 free requests a day (both desks flat,
 #: consulting every other futures tick and every spot review), well inside the shared
@@ -192,7 +198,11 @@ async def default_runner(model: str, system: str, user: str, *, caller: str) -> 
     from condor.runtime.llm_client import build_llm_client
 
     client = build_llm_client(
-        model, system_prompt=system, budget_caller=caller, unattended=True
+        model,
+        system_prompt=system,
+        budget_caller=caller,
+        unattended=True,
+        reasoning_effort=ANALYST_REASONING_EFFORT,
     )
     await client.start()
     try:
@@ -203,6 +213,11 @@ async def default_runner(model: str, system: str, user: str, *, caller: str) -> 
 
 def _clip(text: str) -> str:
     text = str(text).strip()
+    # Some free models echo the whole answer a second time. A brief has exactly one
+    # STANCE line, so cut at the repeat rather than hand the desk the same text twice.
+    repeat = text.find("STANCE:", len("STANCE:"))
+    if repeat > 0:
+        text = text[:repeat].rstrip()
     return text if len(text) <= MAX_BRIEF_CHARS else text[: MAX_BRIEF_CHARS - 1] + "…"
 
 

@@ -311,6 +311,7 @@ def test_the_default_runner_builds_a_tool_less_unattended_client_and_always_stop
     assert seen["kwargs"]["system_prompt"] == "SYS"
     assert seen["kwargs"]["budget_caller"] == "sim_analyst.spot.trend"
     assert seen["kwargs"]["unattended"] is True
+    assert seen["kwargs"]["reasoning_effort"] == A.ANALYST_REASONING_EFFORT
     assert "mcp_servers" not in seen["kwargs"]  # nothing for the model to call
     assert "allowed_tools" not in seen["kwargs"]
 
@@ -395,3 +396,15 @@ def test_only_an_admin_can_consult(api):
         "/sim/kraken/analysts", json={"desk": "spot", "symbols": ["BTC-USD"]}
     )
     assert res.status_code == 403 and not api.rec.calls
+
+
+def test_a_model_that_echoes_its_answer_twice_is_cut_at_the_repeat():
+    models = ("openrouter:nvidia/a:free",)
+    once = "STANCE: unclear - mixed\nEVIDENCE: a number\nINVALIDATION: a level"
+    out = run(
+        panel(Recorder({models[0]: once + once}), models=models).consult(
+            "spot", FACTS, lenses=["trend"]
+        )
+    )
+    assert out["analysts"][0]["brief"] == once
+    assert out["analysts"][0]["brief"].count("STANCE:") == 1

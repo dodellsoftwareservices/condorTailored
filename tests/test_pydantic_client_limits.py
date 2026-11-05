@@ -437,3 +437,18 @@ def test_build_llm_client_forwards_the_caller_and_the_unattended_flag(monkeypatc
 
     assert (client.budget_caller, client.unattended) == ("a.b_3", True)
     assert (chat.budget_caller, chat.unattended) == ("interactive", False)
+
+
+def test_a_per_client_reasoning_effort_overrides_the_file_for_that_client_only(
+    tmp_path, monkeypatch
+):
+    _config(tmp_path, monkeypatch, {"thinking": {"effort": "high"}})
+    analyst = PydanticAIClient(OR_FREE, reasoning_effort="low")
+    desk = PydanticAIClient(OR_FREE)
+    assert analyst._model_settings()["extra_body"]["reasoning"] == {"effort": "low"}
+    assert desk._model_settings()["extra_body"]["reasoning"] == {"effort": "high"}
+
+
+def test_a_reasoning_override_applies_even_with_no_thinking_in_the_file():
+    body = PydanticAIClient(OR_FREE, reasoning_effort="low")._model_settings()
+    assert body["extra_body"]["reasoning"] == {"effort": "low"}

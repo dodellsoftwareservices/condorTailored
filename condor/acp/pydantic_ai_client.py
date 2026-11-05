@@ -512,8 +512,13 @@ class PydanticAIClient:
         env_keys_allowed: bool = True,
         budget_caller: str = "interactive",
         unattended: bool = False,
+        reasoning_effort: str | None = None,
     ):
         self.model_name = model
+        # Overrides agent-config.json ``thinking`` for this client only (OpenRouter's
+        # ``reasoning.effort``). A short advisory call must not think as long as a
+        # desk's decision does.
+        self.reasoning_effort = reasoning_effort
         # Who the request ledger books this client's requests to (a loop's
         # agent_id; "interactive" for a chat), and whether nobody is watching
         # the run: an unattended run is also held to the per-run request cap and
@@ -951,6 +956,8 @@ class PydanticAIClient:
         if model_prefix(self.model_name) == "openrouter":
             body: dict[str, Any] = {"usage": {"include": True}}
             reasoning = cfg.thinking.openrouter_reasoning()
+            if self.reasoning_effort:
+                reasoning = {"effort": self.reasoning_effort}
             if reasoning:
                 body["reasoning"] = reasoning
             model_id = self.model_name.partition(":")[2]

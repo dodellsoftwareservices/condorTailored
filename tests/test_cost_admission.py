@@ -285,3 +285,58 @@ def test_an_error_with_no_status_stays_uncertain_spend(tmp_path):
 
     asyncio.run(scenario())
     assert gov.ledger.unpriced_today() == 1
+
+
+# ── a free model never books spend ──
+
+
+def _free_governor(tmp_path):
+    return governor(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "failure", [asyncio.TimeoutError(), ConnectionError("reset"), _http_error(503)]
+)
+def test_a_failed_free_request_books_no_spend(tmp_path, failure):
+    """Regression: slow free analyst calls were timing out and each was booked at the
+    worst-case reserve, quietly eating the paid month's cap for requests that cost $0.
+    """
+    gov = _free_governor(tmp_path)
+
+    def provider(messages, info):
+        raise failure
+
+    model = CostTrackingModel(
+        FunctionModel(provider),
+        gov,
+        "sim_analyst.spot.trend",
+        "openrouter:nvidia/nemotron-3.5-super-vl:free",
+    )
+
+    async def scenario():
+        with pytest.raises(BaseException):
+            await model.request([], None, ModelRequestParameters())
+
+    asyncio.run(scenario())
+    assert gov.ledger.unpriced_today() == 0
+
+
+def test_the_same_failure_on_a_paid_model_is_still_booked(tmp_path):
+    gov = _free_governor(tmp_path)
+
+    def provider(messages, info):
+        raise ConnectionError("reset")
+
+    model = CostTrackingModel(
+        FunctionModel(provider),
+        gov,
+        "loop",
+        "openrouter:deepseek/deepseek-v4.1-flash-1017",
+    )
+
+    async def scenario():
+        with pytest.raises(ConnectionError):
+            await model.request([], None, ModelRequestParameters())
+
+    asyncio.run(scenario())
+    assert gov.ledger.unpriced_today() == 1

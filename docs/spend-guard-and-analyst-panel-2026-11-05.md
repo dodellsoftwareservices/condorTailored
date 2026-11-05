@@ -74,7 +74,7 @@ desk agent (DeepSeek, paid)  ── sim_consult_analysts ──►  Condor
   tool gives the desk advice without handing it a way to reach anything real.
 - **Free only, enforced.** The panel refuses to be built with a model that is not an
   OpenRouter `:free` model, so a consult cannot spend the paid budget.
-- **Bounded.** At most three analysts and three symbols, 40 seconds per attempt, replies
+- **Bounded.** At most three analysts and three symbols, 40 seconds per attempt (a healthy call takes about 3 seconds), replies
   clipped to 1,200 characters, and one fresh consult per desk per 30 minutes (a repeat call
   returns the cached briefs). Worst case is about 430 free requests a day.
 - **Degrades quietly.** If an analyst model is slow or down it falls through to the second
@@ -82,10 +82,19 @@ desk agent (DeepSeek, paid)  ── sim_consult_analysts ──►  Condor
 - **Advisory.** The tool result and both desk playbooks say so; a brief may never be the
   only reason for a trade, and the journal records which brief changed the decision.
 
-Live check, 2026-11-05: the smaller `nemotron-3.5-super-vl` answered and cited the supplied
-statistics correctly. The 550B `nemotron-3-ultra` timed out on every lens at 60 seconds, so it
-is now the fallback. Two of three lenses answered in 81 seconds; the third timed out on both
-models. Consults are slow because the free endpoints are; the 30-minute window hides it.
+Live check, 2026-11-05, and what it taught:
+
+- First attempt: the analysts timed out or came back empty (0 of 3 in 81 s). The cause was
+  not the governor or the network. Probed directly against `nemotron-3.5-super-vl:free`
+  with the real prompt: with no reasoning setting, or `low`, the model spends its whole
+  token budget thinking and returns an **empty answer** (600/600 reasoning tokens, 0 content
+  characters). With `reasoning.effort: none` it returns a complete brief in 2-5 s.
+- The analysts therefore run with `effort: none` (`ANALYST_REASONING_EFFORT`), set per
+  client so the desks keep the global `high`. Result: 3 of 3 analysts over three symbols in
+  about 11 s, with briefs that cite the supplied statistics.
+- Timeouts of free-model calls were also being booked as unpriced spend at the $0.20
+  reserve; a free model never books spend now, whatever happens to the request.
+- Some free models echo the whole answer twice; the panel cuts at the repeated `STANCE:`.
 
 ## What this does not establish
 
