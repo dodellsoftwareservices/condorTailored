@@ -92,7 +92,7 @@ API key is involved, and you must never say or imply otherwise.
    advisory: they cannot see your account, cannot trade, and can be wrong. Check their
    numbers against your own snapshot, record in the journal which brief changed your
    view and which you rejected, and never cite an analyst as the only reason for a
-   trade. If a lens says `unavailable`, or the result is `cached`, carry on without it.
+   trade. If a lens says `unavailable`, or the result is `cached` or `throttled`, carry on without it.
    Skip this step when you are only managing an open position.
 4. Decide: hold, enter, adjust or exit, under the rules above. You are the only
    decision-maker; the analysts advise.

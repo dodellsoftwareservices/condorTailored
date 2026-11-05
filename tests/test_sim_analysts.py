@@ -448,3 +448,67 @@ def test_blank_lines_and_runs_of_spaces_are_collapsed():
     assert A._clip("STANCE:   neutral  -  flat\n\n\n  EVIDENCE:   a   b  ") == (
         "STANCE: neutral - flat\nEVIDENCE: a b"
     )
+
+
+# ── the cache key and the fresh-consult limit ──
+
+
+def facts_for(*symbols):
+    return [{"symbol": s, "daily": {"last_close": 1}} for s in symbols]
+
+
+def test_a_different_symbol_set_is_not_served_stale_briefs_for_other_symbols():
+    """Regression: the cache was keyed by desk only, so asking about ETH and SOL returned
+    the cached BTC briefs, flagged cached, for symbols nobody had analysed."""
+    rec = Recorder()
+    p = panel(rec)
+    btc = run(p.consult("spot", facts_for("BTC-USD")))
+    alts = run(p.consult("spot", facts_for("ETH-USD", "SOL-USD")))
+    assert alts["cached"] is False and alts["symbols"] == ["ETH-USD", "SOL-USD"]
+    assert btc["symbols"] == ["BTC-USD"] and len(rec.calls) == 6
+    again = run(
+        p.consult("spot", facts_for("SOL-USD", "ETH-USD"))
+    )  # order is irrelevant
+    assert again["cached"] is True and len(rec.calls) == 6
+
+
+def test_different_lenses_are_a_different_consult():
+    rec = Recorder()
+    p = panel(rec)
+    run(p.consult("spot", FACTS, lenses=["trend"]))
+    out = run(p.consult("spot", FACTS, lenses=["counter"]))
+    assert out["cached"] is False and len(rec.calls) == 2
+
+
+def test_a_desk_gets_at_most_two_fresh_consults_per_window_whatever_it_varies():
+    now = [1000.0]
+    rec = Recorder()
+    p = panel(rec, clock=lambda: now[0], min_interval=1800)
+    run(p.consult("spot", facts_for("A")))
+    run(p.consult("spot", facts_for("B")))
+    out = run(p.consult("spot", facts_for("C")))  # a third, different ask
+    assert out["throttled"] is True and out["analysts"] == []
+    assert out["retry_in_sec"] == 1800 and "already run" in out["note"]
+    assert len(rec.calls) == 6  # nobody was asked for the third
+    now[0] += 1801
+    assert run(p.consult("spot", facts_for("C")))["throttled"] is False
+
+
+def test_failed_consults_count_toward_the_limit_so_a_retry_loop_cannot_hammer():
+    models = ("openrouter:nvidia/a:free",)
+    rec = Recorder({models[0]: RuntimeError("down")})
+    p = panel(rec, models=models)
+    for _ in range(2):
+        out = run(p.consult("spot", FACTS, lenses=["trend"]))
+        assert out["analysts"][0]["status"] == "unavailable"
+    asked = len(rec.calls)
+    third = run(p.consult("spot", FACTS, lenses=["trend"]))
+    assert third["throttled"] is True and len(rec.calls) == asked
+
+
+def test_the_limit_is_per_desk():
+    rec = Recorder()
+    p = panel(rec)
+    for sym in ("A", "B"):
+        run(p.consult("spot", facts_for(sym)))
+    assert run(p.consult("futures", facts_for("C")))["throttled"] is False

@@ -290,7 +290,7 @@ def test_an_unreadable_baseline_pauses_paid_requests_rather_than_guessing(tmp_pa
 
 def test_a_baseline_from_an_earlier_month_is_ignored(tmp_path):
     gov, ledger, _ = make(tmp_path)
-    write_baseline(tmp_path, month="202610", month_used_usd=29.99)
+    write_baseline(tmp_path, month="202610", day="20261031", month_used_usd=29.99)
     assert ledger.spend_window(NOW)["month_used_usd"] == 0
     admit(gov)
 
@@ -316,3 +316,107 @@ def test_unpriced_responses_also_count_toward_the_daily_cap(tmp_path):
     ledger.record_unpriced("x")  # 0.30 + 0.15 >= 0.40
     with pytest.raises(BudgetExhausted, match="daily cost budget spent"):
         admit(gov)
+
+
+# ── a baseline must be complete: a missing field never loosens the guard ──
+
+
+def _unreadable(tmp_path, content):
+    gov, _, _ = make(tmp_path)
+    (tmp_path / "spend-baseline.json").write_text(content)
+    with pytest.raises(BudgetExhausted, match="baseline is unreadable"):
+        admit(gov)
+
+
+@pytest.mark.parametrize("missing", ["month", "day", "as_of", "month_used_usd"])
+def test_a_baseline_missing_any_field_pauses_paid_requests(tmp_path, missing):
+    """Regression: a baseline without `month` passed validation and then contributed
+    nothing, silently dropping the dollars it recorded from the cap."""
+    base = {
+        "as_of": NOW - 100,
+        "month": "202611",
+        "day": "20261115",
+        "day_used_usd": 0.5,
+        "month_used_usd": 29.9,
+    }
+    base.pop(missing)
+    _unreadable(tmp_path, json.dumps(base))
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"month": "2026-11"},
+        {"month": 202611},
+        {"day": "2026111"},
+        {"day": "20261215"},  # not in its month
+        {"month": "202611", "day": "20261x15"},
+    ],
+)
+def test_a_malformed_month_or_day_is_unreadable_not_ignored(tmp_path, bad):
+    base = {
+        "as_of": NOW - 100,
+        "month": "202611",
+        "day": "20261115",
+        "day_used_usd": 0.5,
+        "month_used_usd": 29.9,
+        **bad,
+    }
+    _unreadable(tmp_path, json.dumps(base))
+
+
+# ── the ledger is folded incrementally, with the same answers ──
+
+
+def test_new_rows_are_picked_up_without_rereading_the_old_ones(tmp_path):
+    _, ledger, _ = make(tmp_path)
+    ledger.record_cost("x", 1.0)
+    assert ledger.spend_window(NOW)["month_used_usd"] == 1.0
+    path = ledger.path_for("20261115")
+    first_offset = ledger._spend_cache[path][0]
+    ledger.record_cost("x", 2.0)
+    ledger.record_unpriced("x")
+    window = ledger.spend_window(NOW)
+    assert window["month_used_usd"] == 3.0 and window["unpriced"] == 1
+    assert ledger._spend_cache[path][0] > first_offset
+
+
+def test_a_half_written_line_waits_for_its_newline(tmp_path):
+    _, ledger, _ = make(tmp_path)
+    path = ledger.path_for("20261115")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row = json.dumps({"t": NOW - 5, "ev": "cost", "caller": "x", "usd": 4.0})
+    path.write_text(row[:20])  # a write in progress
+    assert ledger.spend_window(NOW)["month_used_usd"] == 0
+    path.write_text(row + "\n")
+    assert ledger.spend_window(NOW)["month_used_usd"] == 4.0
+
+
+def test_a_truncated_ledger_is_reread_from_the_start(tmp_path):
+    _, ledger, _ = make(tmp_path)
+    ledger.record_cost("x", 5.0)
+    assert ledger.spend_window(NOW)["month_used_usd"] == 5.0
+    ledger.path_for("20261115").write_text("")  # rotated or replaced
+    assert ledger.spend_window(NOW)["month_used_usd"] == 0
+    ledger.record_cost("x", 1.5)
+    assert ledger.spend_window(NOW)["month_used_usd"] == 1.5
+
+
+def test_corrupt_lines_are_still_counted_as_unpriced_responses(tmp_path):
+    _, ledger, _ = make(tmp_path)
+    path = ledger.path_for("20261115")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("not json\n5\n" + json.dumps({"ev": "cost", "usd": "x"}) + "\n")
+    window = ledger.spend_window(NOW)
+    assert window["unpriced"] == 3 and window["unpriced_today"] == 3
+
+
+def test_a_reservation_released_in_the_next_days_file_is_not_left_held(tmp_path):
+    """Files are read in date order, so a reserve from late yesterday and its release
+    shortly after midnight cancel out instead of holding dollars until they expire."""
+    day_one = datetime(2026, 11, 14, 23, 59, 50, tzinfo=timezone.utc).timestamp()
+    day_two = day_one + 20
+    _, ledger, _ = make(tmp_path, now=day_two)
+    ledger._append(day_one, {"t": day_one, "ev": "cost_reserve", "id": "a", "usd": 0.2})
+    ledger._append(day_two, {"t": day_two, "ev": "cost_release", "id": "a"})
+    assert ledger.spend_window(day_two + 1)["reserved_usd"] == 0

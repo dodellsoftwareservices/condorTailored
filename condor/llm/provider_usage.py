@@ -31,7 +31,7 @@ from typing import Any
 import httpx
 
 from condor.fsutil import atomic_write_json
-from condor.llm.budget import get_governor, utc_day
+from condor.llm.budget import get_governor, parse_baseline, utc_day
 
 logger = logging.getLogger(__name__)
 
@@ -96,15 +96,10 @@ async def fetch_usage(
 
 
 def _read_baseline(path: Path) -> dict | None:
+    """The baseline if it is complete and valid, else ``None`` (it will be rewritten)."""
     try:
-        raw = json.loads(path.read_text())
-        if not isinstance(raw, dict):
-            return None
-        for key in ("as_of", "day_used_usd", "month_used_usd"):
-            if _amount(raw.get(key)) is None:
-                return None
-        return raw
-    except (OSError, ValueError, TypeError):
+        return parse_baseline(json.loads(path.read_text()))
+    except (OSError, ValueError, TypeError, KeyError):
         return None
 
 
@@ -119,6 +114,9 @@ def apply_usage(ledger_dir: Path, usage: ProviderUsage) -> str:
     month = day[:6]
     path = ledger_dir / BASELINE_FILE
     held = _read_baseline(path)
+    # Always record what the provider said, so the status route shows a fresh reading
+    # (and any gap to a stricter baseline) even when the baseline itself is kept.
+    atomic_write_json(ledger_dir / READING_FILE, asdict(usage))
     if (
         held is not None
         and held.get("month") == month
@@ -137,7 +135,6 @@ def apply_usage(ledger_dir: Path, usage: ProviderUsage) -> str:
             + time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(usage.as_of)),
         },
     )
-    atomic_write_json(ledger_dir / READING_FILE, asdict(usage))
     return "written"
 
 

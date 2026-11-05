@@ -53,10 +53,14 @@ ANALYST_TIMEOUT_SEC = 40.0
 #: not need chain-of-thought, and the desk's own (paid) model does the real reasoning.
 ANALYST_REASONING_EFFORT = "none"
 #: One consult per desk per window. A model that loops on the tool gets the cached answer.
-#: Thirty minutes keeps the worst case near 430 free requests a day (both desks flat,
+#: Thirty minutes keeps the typical load near 430 free requests a day (both desks flat,
 #: consulting every other futures tick and every spot review), well inside the shared
 #: 1,000-a-day free-model cap that the desks' own requests also draw on.
 MIN_INTERVAL_SEC = 1800.0
+#: Fresh consults a desk may start per window, successful or not. The same symbols and
+#: lenses are served from cache; this bounds what varying them (or a failing tool being
+#: retried in a loop) can cost: at most 2 x 3 lenses x 2 models free requests per window.
+MAX_FRESH_PER_WINDOW = 2
 
 COMMON = (
     "You are one of several independent analysts advising a simulated trading desk's "
@@ -260,7 +264,10 @@ class AnalystPanel:
         self._min_interval = min_interval
         self._timeout = timeout
         self._locks: dict[str, asyncio.Lock] = {}
-        self._last: dict[str, tuple[float, dict]] = {}
+        # Served from cache while fresh: same desk, same symbols, same lenses.
+        self._last: dict[tuple, tuple[float, dict]] = {}
+        # When each desk started a fresh consult (answered or not), for the rate limit.
+        self._calls: dict[str, list[float]] = {}
 
     async def _ask(self, lens: str, desk: str, user: str) -> dict:
         name, instruction = LENSES[lens]
@@ -312,10 +319,12 @@ class AnalystPanel:
             )
         if not facts:
             raise ValueError("A consult needs at least one symbol's facts")
+        symbols = [f.get("symbol") for f in facts[:MAX_SYMBOLS]]
+        key = (desk, tuple(sorted(map(str, symbols))), tuple(sorted(chosen)))
         lock = self._locks.setdefault(desk, asyncio.Lock())
         async with lock:
             now = self._clock()
-            held = self._last.get(desk)
+            held = self._last.get(key)
             if held and now - held[0] < self._min_interval:
                 age = now - held[0]
                 return {
@@ -323,6 +332,23 @@ class AnalystPanel:
                     "cached": True,
                     "age_sec": round(age),
                     "next_fresh_consult_in_sec": round(self._min_interval - age),
+                }
+            recent = [
+                t for t in self._calls.get(desk, []) if now - t < self._min_interval
+            ]
+            if len(recent) >= MAX_FRESH_PER_WINDOW:
+                return {
+                    "advisory": True,
+                    "throttled": True,
+                    "cached": False,
+                    "desk": desk,
+                    "symbols": symbols,
+                    "analysts": [],
+                    "note": (
+                        f"This desk has already run {MAX_FRESH_PER_WINDOW} consults in the "
+                        "last half hour. Decide with your own snapshot and journal."
+                    ),
+                    "retry_in_sec": round(self._min_interval - (now - recent[0])),
                 }
             user = (
                 "Facts (JSON). Completed candles only.\n"
@@ -336,6 +362,7 @@ class AnalystPanel:
             analysts = await asyncio.gather(
                 *(self._ask(lens, desk, user) for lens in chosen)
             )
+            self._calls[desk] = [*recent, now]
             result = {
                 "advisory": True,
                 "note": (
@@ -344,11 +371,12 @@ class AnalystPanel:
                     "never cite an analyst as the only reason for a trade."
                 ),
                 "desk": desk,
-                "symbols": [f.get("symbol") for f in facts[:MAX_SYMBOLS]],
+                "symbols": symbols,
                 "as_of": now,
                 "cached": False,
+                "throttled": False,
                 "analysts": list(analysts),
             }
             if any(a["status"] == "ok" for a in analysts):
-                self._last[desk] = (now, result)
+                self._last[key] = (now, result)
             return result

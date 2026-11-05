@@ -720,8 +720,9 @@ async def sim_consult_analysts(
     only precomputed statistics (trend, volatility, range, costs, funding), never your
     account; they cannot trade and have no tools. Their briefs are opinion from free
     models: verify against your own snapshot and never cite an analyst as the only
-    reason for a trade. You alone decide. A repeat call within thirty minutes returns
-    the previous briefs (``cached: true``).
+    reason for a trade. You alone decide. The same symbols within thirty minutes return
+    the previous briefs (``cached: true``), and a desk gets at most two fresh consults per
+    half hour (``throttled: true`` after that).
 
     Args:
         desk: "spot" (the Kraken spot account) or "futures" (the perpetuals account).

@@ -105,6 +105,16 @@ def test_a_lower_reading_for_the_same_month_never_loosens_the_baseline(tmp_path)
     assert read_baseline(tmp_path)["month_used_usd"] == 5.0
 
 
+def test_a_kept_baseline_still_records_the_fresh_provider_reading(tmp_path):
+    """So the status route shows the provider's real figure (and the gap to a stricter
+    baseline) instead of a reading frozen at the last time the baseline was written."""
+    P.apply_usage(tmp_path, usage(month=5.0, as_of=NOW))
+    assert P.apply_usage(tmp_path, usage(month=4.0, as_of=NOW + 600)) == "kept"
+    reading = json.loads((tmp_path / P.READING_FILE).read_text())
+    assert reading["month_used"] == 4.0 and reading["as_of"] == NOW + 600
+    assert read_baseline(tmp_path)["month_used_usd"] == 5.0  # the baseline did not move
+
+
 def test_a_higher_reading_replaces_it(tmp_path):
     P.apply_usage(tmp_path, usage(month=5.0))
     assert P.apply_usage(tmp_path, usage(month=7.5, as_of=NOW + 600)) == "written"

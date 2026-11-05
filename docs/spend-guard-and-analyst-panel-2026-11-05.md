@@ -86,9 +86,12 @@ desk agent (DeepSeek, paid)  ── sim_consult_analysts ──►  Condor
   tool gives the desk advice without handing it a way to reach anything real.
 - **Free only, enforced.** The panel refuses to be built with a model that is not an
   OpenRouter `:free` model, so a consult cannot spend the paid budget.
-- **Bounded.** At most three analysts and three symbols, 40 seconds per attempt (a healthy call takes about 3 seconds), replies
-  clipped to 1,200 characters, and one fresh consult per desk per 30 minutes (a repeat call
-  returns the cached briefs). Worst case is about 430 free requests a day.
+- **Bounded.** At most three analysts and three symbols, 40 seconds per attempt (a healthy
+  call takes about 3 seconds), each brief reduced to plain text (no links or control
+  characters, 14 short lines) because it is untrusted model output on its way into the paid
+  desk's context. The same symbols and lenses are served from cache for 30 minutes, and a
+  desk may start at most two fresh consults per half hour, answered or not, so a model
+  looping on a failing tool cannot burn the free tier (`throttled: true` after that).
 - **Degrades quietly.** If an analyst model is slow or down it falls through to the second
   free model, then reports `unavailable` and the desk decides without that lens.
 - **Advisory.** The tool result and both desk playbooks say so; a brief may never be the

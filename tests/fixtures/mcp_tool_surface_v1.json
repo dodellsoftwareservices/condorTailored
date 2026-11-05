@@ -1,6 +1,6 @@
 {
   "_provenance": {
-    "commit": "ce86edb2dfdddddd0f8636c2253f0868099e0665",
+    "commit": "48768224aded3183d49803fea4d43e2b472222ca",
     "mcp": "2.2.0",
     "pydantic-ai": "2.52.0"
   },
@@ -1146,7 +1146,7 @@
       "outputSchema": null
     },
     "sim_consult_analysts": {
-      "description": "Ask two or three FREE advisory analysts (Nemotron) to read daily and 4-hour statistics.\n\n    Use it when screening for a NEW entry, once per review at most. The analysts see\n    only precomputed statistics (trend, volatility, range, costs, funding), never your\n    account; they cannot trade and have no tools. Their briefs are opinion from free\n    models: verify against your own snapshot and never cite an analyst as the only\n    reason for a trade. You alone decide. A repeat call within thirty minutes returns\n    the previous briefs (``cached: true``).\n\n    Args:\n        desk: \"spot\" (the Kraken spot account) or \"futures\" (the perpetuals account).\n        symbols: One to three symbols, e.g. [\"BTC-USD\", \"ETH-USD\"].\n        question: Optional, up to 300 characters, for example \"is a pullback entry\n                  still valid?\".\n\n    Returns:\n        {\"advisory\": true, \"analysts\": [{\"lens\", \"role\", \"model\", \"status\", \"brief\"}]},\n        or {\"error\": \"...\"}.\n    ",
+      "description": "Ask two or three FREE advisory analysts (Nemotron) to read daily and 4-hour statistics.\n\n    Use it when screening for a NEW entry, once per review at most. The analysts see\n    only precomputed statistics (trend, volatility, range, costs, funding), never your\n    account; they cannot trade and have no tools. Their briefs are opinion from free\n    models: verify against your own snapshot and never cite an analyst as the only\n    reason for a trade. You alone decide. The same symbols within thirty minutes return\n    the previous briefs (``cached: true``), and a desk gets at most two fresh consults per\n    half hour (``throttled: true`` after that).\n\n    Args:\n        desk: \"spot\" (the Kraken spot account) or \"futures\" (the perpetuals account).\n        symbols: One to three symbols, e.g. [\"BTC-USD\", \"ETH-USD\"].\n        question: Optional, up to 300 characters, for example \"is a pullback entry\n                  still valid?\".\n\n    Returns:\n        {\"advisory\": true, \"analysts\": [{\"lens\", \"role\", \"model\", \"status\", \"brief\"}]},\n        or {\"error\": \"...\"}.\n    ",
       "inputSchema": {
         "properties": {
           "desk": {

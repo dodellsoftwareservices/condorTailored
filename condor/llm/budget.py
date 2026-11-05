@@ -134,6 +134,53 @@ def ledger_dir() -> Path:
     return data_dir() / LEDGER_DIRNAME
 
 
+_SPEND_EVENTS = frozenset({"cost", "cost_unknown", "cost_reserve", "cost_release"})
+
+
+def parse_baseline(raw: Any) -> dict[str, Any]:
+    """Validate the contents of ``spend-baseline.json``; raises on anything doubtful.
+
+    Every field is required. A baseline missing ``month`` used to pass validation and then
+    contribute nothing (it only applies when its month matches), silently dropping the
+    dollars it records from the cap; an unreadable baseline must pause paid requests
+    instead, never loosen the guard.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("baseline is not an object")
+    for key in ("as_of", "day_used_usd", "month_used_usd"):
+        value = float(raw[key])
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(f"invalid baseline {key}")
+    month, day = raw["month"], raw["day"]
+    for label, text, width in (("month", month, 6), ("day", day, 8)):
+        if not (isinstance(text, str) and len(text) == width and text.isdigit()):
+            raise ValueError(f"invalid baseline {label}")
+    if day[:6] != month:
+        raise ValueError("baseline day is not in its month")
+    return raw
+
+
+def _spend_row(line: str) -> tuple[str, float, float, str] | None:
+    """One ledger line as ``(event, time, usd, id)``, ``None`` if it is not spend-related,
+    or ``("bad", ...)`` if it is unreadable (counted as an unpriced response)."""
+    try:
+        row = json.loads(line)
+        event = row.get("ev")
+        if event not in _SPEND_EVENTS:
+            return None
+        stamp = float(row.get("t", 0))
+        if event == "cost_unknown":
+            return (event, stamp, 0.0, "")
+        if event == "cost_release":
+            return (event, stamp, 0.0, str(row["id"]))
+        amount = float(row["usd"])
+        if not math.isfinite(amount) or amount < 0:
+            raise ValueError("invalid amount")
+        return (event, stamp, amount, str(row["id"]) if event == "cost_reserve" else "")
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return ("bad", 0.0, 0.0, "")
+
+
 class RequestLedger:
     """Append-only, per-day record of model requests, read back incrementally.
 
@@ -152,6 +199,10 @@ class RequestLedger:
         self._directory = directory
         self._clock = clock
         self._lock = threading.RLock()
+        # Per ledger file: (bytes consumed, spend-related rows). The files are
+        # append-only, so a read parses only what was added since the last one
+        # instead of the whole month on every paid request.
+        self._spend_cache: dict[Path, tuple[int, list[tuple]]] = {}
         self._day = ""
         self._offset = 0
         self._count = 0
@@ -269,6 +320,28 @@ class RequestLedger:
             self._fold(self._clock() if now is None else now)
             return self._unpriced_costs
 
+    def _spend_rows(self, path: Path) -> list[tuple]:
+        """The file's spend-related rows, folded incrementally from the last offset."""
+        size = path.stat().st_size
+        offset, rows = self._spend_cache.get(path, (0, []))
+        if size < offset:  # truncated or replaced: start over
+            offset, rows = 0, []
+        if size > offset:
+            with path.open("rb") as handle:
+                handle.seek(offset)
+                data = handle.read(size - offset)
+            end = data.rfind(b"\n")
+            if end >= 0:  # only whole lines; a half-written tail waits for its newline
+                chunk = data[: end + 1]
+                offset += len(chunk)
+                for line in chunk.decode(errors="replace").splitlines():
+                    if line.strip():
+                        row = _spend_row(line)
+                        if row is not None:
+                            rows.append(row)
+        self._spend_cache[path] = (offset, rows)
+        return rows
+
     def spend_window(self, now: float | None = None) -> dict[str, Any]:
         """Month/day costs after a verified provider baseline, including unknowns.
 
@@ -282,15 +355,7 @@ class RequestLedger:
         baseline: dict[str, Any] = {}
         if baseline_path.exists():
             try:
-                baseline = json.loads(baseline_path.read_text())
-                if not isinstance(baseline, dict):
-                    raise ValueError("invalid baseline")
-                for key in ("as_of", "day_used_usd", "month_used_usd"):
-                    if (
-                        not math.isfinite(float(baseline[key]))
-                        or float(baseline[key]) < 0
-                    ):
-                        raise ValueError("invalid baseline amount")
+                baseline = parse_baseline(json.loads(baseline_path.read_text()))
             except (OSError, ValueError, TypeError, KeyError) as exc:
                 raise BudgetExhausted(
                     "Spend baseline is unreadable; paid requests paused",
@@ -308,40 +373,36 @@ class RequestLedger:
         unknown = 0
         unknown_today = 0
         reservations: dict[str, tuple[float, float]] = {}
-        for path in self.directory.glob(f"requests-{month}*.jsonl"):
-            try:
-                for line in path.read_text().splitlines():
-                    try:
-                        row = json.loads(line)
-                        if float(row.get("t", 0)) <= cutoff:
-                            continue
-                        if row.get("ev") == "cost_unknown":
-                            unknown += 1
-                            if path == self.path_for(day):
-                                unknown_today += 1
-                        elif row.get("ev") == "cost_reserve":
-                            amount = float(row["usd"])
-                            if not math.isfinite(amount) or amount < 0:
-                                raise ValueError("invalid reservation")
-                            reservations[str(row["id"])] = (amount, float(row["t"]))
-                        elif row.get("ev") == "cost_release":
-                            reservations.pop(str(row["id"]), None)
-                        elif row.get("ev") == "cost":
-                            amount = float(row["usd"])
-                            if not math.isfinite(amount) or amount < 0:
-                                raise ValueError("invalid cost")
-                            monthly += amount
-                            if path == self.path_for(day):
-                                daily += amount
-                    except (ValueError, TypeError, KeyError, AttributeError):
+        today = self.path_for(day)
+        with self._lock:
+            # Sorted: a reservation in yesterday's file is released in today's, and
+            # reading them the other way round would leave it held until it expires.
+            for path in sorted(self.directory.glob(f"requests-{month}*.jsonl")):
+                try:
+                    rows = self._spend_rows(path)
+                except OSError as exc:
+                    raise BudgetExhausted(
+                        "Cannot read monthly spend ledger; paid requests paused",
+                        next_reset(now),
+                    ) from exc
+                is_today = path == today
+                for event, stamp, amount, rid in rows:
+                    if event == "bad":
                         unknown += 1
-                        if path == self.path_for(day):
-                            unknown_today += 1
-            except OSError as exc:
-                raise BudgetExhausted(
-                    "Cannot read monthly spend ledger; paid requests paused",
-                    next_reset(now),
-                ) from exc
+                        unknown_today += is_today
+                    elif stamp <= cutoff:
+                        continue
+                    elif event == "cost_unknown":
+                        unknown += 1
+                        unknown_today += is_today
+                    elif event == "cost_reserve":
+                        reservations[rid] = (amount, stamp)
+                    elif event == "cost_release":
+                        reservations.pop(rid, None)
+                    elif event == "cost":
+                        monthly += amount
+                        if is_today:
+                            daily += amount
         held = sum(
             amount
             for amount, started in reservations.values()

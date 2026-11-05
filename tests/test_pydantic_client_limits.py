@@ -505,3 +505,70 @@ def test_a_local_client_still_shares_one_slot_per_server(monkeypatch):
 
     first, second = asyncio.run(scenario())
     assert first is not None and first is second
+
+
+def test_a_tool_only_assistant_turn_is_sent_to_openrouter_with_empty_not_null_content():
+    """Regression: the OpenRouter model dropped the null-content coercion, so a desk's
+    tool-call-only turn was replayed with content=null, which some providers reject."""
+    from condor.acp.pydantic_ai_client import _make_openrouter_model
+
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append(body)
+        if len(seen) == 1:  # a pure tool call, no narration
+            return httpx.Response(
+                200,
+                json={
+                    "id": "g1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "m",
+                    "provider": "Test",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "lookup",
+                                            "arguments": "{}",
+                                        },
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                },
+            )
+        return httpx.Response(200, json={**_completion("done"), "provider": "Test"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    sdk = AsyncOpenAI(
+        api_key="t", base_url="https://openrouter.ai/api/v1", http_client=http
+    )
+    from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+    model = _make_openrouter_model("deepseek/x", OpenRouterProvider(openai_client=sdk))
+    agent = Agent(model)
+
+    @agent.tool_plain
+    def lookup() -> str:
+        return "data"
+
+    asyncio.run(agent.run("go"))
+    assistant = [m for m in seen[1]["messages"] if m["role"] == "assistant"]
+    assert assistant and assistant[0]["content"] == ""
+    assert assistant[0]["tool_calls"][0]["function"]["name"] == "lookup"
