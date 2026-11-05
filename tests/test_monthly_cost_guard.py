@@ -22,7 +22,13 @@ PAID = "openrouter:deepseek/deepseek-v4.1-flash-1017"
 FREE = "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free"
 
 
+CEILING = {"prompt": 0.17, "completion": 0.55}
+
+
 def make(tmp_path, *, now=NOW, cap=30.0, **overrides):
+    overrides.setdefault("request_cost_reserve_usd", 0.15)
+    overrides.setdefault("paid_price_ceiling_usd_per_million", CEILING)
+    overrides.setdefault("paid_max_context_tokens", 800_000)
     cfg = Budget(
         enabled=True,
         monthly_cost_cap_usd=cap,
@@ -66,15 +72,53 @@ def test_the_camel_case_file_keys_load_and_an_impossible_reserve_is_refused():
     cfg = Budget.model_validate(
         {
             "monthlyCostCapUsd": 30,
-            "requestCostReserveUsd": 0.15,
+            "requestCostReserveUsd": 0.2,
+            "paidPriceCeilingUsdPerMillion": {"prompt": 0.17, "completion": 0.55},
+            "paidMaxContextTokens": 1048576,
             "allowedPaidModels": [PAID],
         }
     )
     assert cfg.monthly_cost_cap_usd == 30
-    assert cfg.request_cost_reserve_usd == 0.15
+    assert cfg.request_cost_reserve_usd == 0.2
+    assert cfg.paid_price_ceiling_usd_per_million.prompt == 0.17
     assert cfg.allowed_paid_models == (PAID,)
     with pytest.raises(ValidationError, match="must be below"):
         Budget(monthly_cost_cap_usd=0.10, request_cost_reserve_usd=0.15)
+
+
+def test_a_monthly_cap_without_a_price_ceiling_is_refused():
+    """No ceiling means a paid request has no worst case, so nothing to reserve."""
+    with pytest.raises(ValidationError, match="paidPriceCeilingUsdPerMillion"):
+        Budget(monthly_cost_cap_usd=30, request_cost_reserve_usd=5)
+
+
+def test_the_reserve_must_cover_the_worst_request_the_ceiling_allows():
+    """The regression behind this check: a $0.15 reserve and a $0.13 ceiling were
+    both wrong at the endpoint's real $0.16/M, and nothing tied the two together."""
+    ceiling = {"prompt": 0.17, "completion": 0.55}
+    worst = (1_048_576 * 0.17 + 4096 * 0.55) / 1_000_000  # ~0.1805
+    with pytest.raises(ValidationError, match=r"below the worst case of one paid"):
+        Budget(
+            monthly_cost_cap_usd=30,
+            request_cost_reserve_usd=0.15,
+            paid_price_ceiling_usd_per_million=ceiling,
+        )
+    ok = Budget(
+        monthly_cost_cap_usd=30,
+        request_cost_reserve_usd=round(worst + 0.001, 4),
+        paid_price_ceiling_usd_per_million=ceiling,
+    )
+    assert ok.request_cost_reserve_usd >= worst
+
+
+def test_the_shipped_agent_config_satisfies_its_own_invariant():
+    import json
+    from pathlib import Path
+
+    raw = json.loads((Path(__file__).parent.parent / "agent-config.json").read_text())
+    cfg = Budget.model_validate(raw["budget"])  # raises if the reserve is too small
+    assert cfg.monthly_cost_cap_usd == 30
+    assert cfg.allowed_paid_models == (PAID,)
 
 
 def test_a_monthly_cap_is_off_unless_configured():

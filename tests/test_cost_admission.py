@@ -224,3 +224,64 @@ def test_invalid_prices_cannot_reduce_or_poison_spend(tmp_path, cost):
     with pytest.raises(ValueError):
         ledger.record_cost("chat", cost)
     assert ledger.cost_today() == 0.10
+
+
+# ── a provider rejection is not spend ──
+
+
+def _http_error(status):
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    return ModelHTTPError(status, "openrouter:deepseek/deepseek-v4.1-flash-1017", {})
+
+
+@pytest.mark.parametrize("status", [400, 401, 402, 403, 404, 422, 429])
+def test_a_client_error_reply_books_no_spend(tmp_path, status):
+    """Regression: a mis-set price ceiling made every paid request 404, and each one was
+    booked at the worst-case reserve, so a broken config could burn the month's cap."""
+    gov = governor(tmp_path)
+
+    def provider(messages, info):
+        raise _http_error(status)
+
+    model = CostTrackingModel(FunctionModel(provider), gov, "loop", "openai:test")
+
+    async def scenario():
+        with pytest.raises(Exception, match=str(status)):
+            await model.request([], None, ModelRequestParameters())
+
+    asyncio.run(scenario())
+    assert gov.ledger.unpriced_today() == 0
+
+
+@pytest.mark.parametrize("status", [408, 500, 502, 503])
+def test_a_timeout_or_server_error_stays_uncertain_spend(tmp_path, status):
+    gov = governor(tmp_path)
+
+    def provider(messages, info):
+        raise _http_error(status)
+
+    model = CostTrackingModel(FunctionModel(provider), gov, "loop", "openai:test")
+
+    async def scenario():
+        with pytest.raises(Exception, match=str(status)):
+            await model.request([], None, ModelRequestParameters())
+
+    asyncio.run(scenario())
+    assert gov.ledger.unpriced_today() == 1
+
+
+def test_an_error_with_no_status_stays_uncertain_spend(tmp_path):
+    gov = governor(tmp_path)
+
+    def provider(messages, info):
+        raise ConnectionError("reset by peer")
+
+    model = CostTrackingModel(FunctionModel(provider), gov, "loop", "openai:test")
+
+    async def scenario():
+        with pytest.raises(ConnectionError):
+            await model.request([], None, ModelRequestParameters())
+
+    asyncio.run(scenario())
+    assert gov.ledger.unpriced_today() == 1

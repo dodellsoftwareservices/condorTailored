@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from pydantic_ai.models.wrapper import WrapperModel
 
-from condor.llm.budget import BudgetExhausted, is_free_model
+from condor.llm.budget import PAID_MAX_OUTPUT_TOKENS, BudgetExhausted, is_free_model
 
 
 def response_cost_usd(response, model_key: str = "") -> float:
@@ -22,6 +22,17 @@ def response_cost_usd(response, model_key: str = "") -> float:
     return cost
 
 
+def rejected_before_generation(exc: BaseException) -> bool:
+    """A client-error reply (400-499, bar 408) means the provider refused the request
+    before running the model, so nothing was billed. Booking such a failure at the
+    worst-case reserve would let a mis-set routing option (a 404) burn the whole month's
+    cap in a few hundred retries. Timeouts, 5xx, dropped streams and cancellations stay
+    uncertain: tokens may have been spent upstream.
+    """
+    status = getattr(exc, "status_code", None)
+    return isinstance(status, int) and 400 <= status < 500 and status != 408
+
+
 class CostTrackingModel(WrapperModel):
     def __init__(self, model, governor, caller: str, model_key: str):
         super().__init__(model)
@@ -35,7 +46,10 @@ class CostTrackingModel(WrapperModel):
             or self.governor.config.monthly_cost_cap_usd is not None
         ):
             settings = dict(settings or {})
-            settings["max_tokens"] = min(settings.get("max_tokens") or 4096, 4096)
+            settings["max_tokens"] = min(
+                settings.get("max_tokens") or PAID_MAX_OUTPUT_TOKENS,
+                PAID_MAX_OUTPUT_TOKENS,
+            )
         return settings
 
     def _record(self, response):
@@ -58,9 +72,10 @@ class CostTrackingModel(WrapperModel):
                 )
             except BudgetExhausted:
                 raise
-            except BaseException:
-                # A failed/cancelled transport may have spent tokens upstream.
-                if self.governor.config.enabled:
+            except BaseException as exc:
+                # A failed/cancelled transport may have spent tokens upstream, unless the
+                # provider rejected the request outright.
+                if self.governor.config.enabled and not rejected_before_generation(exc):
                     self.governor.ledger.record_unpriced(self.caller)
                 raise
             self._record(response)
@@ -73,6 +88,7 @@ class CostTrackingModel(WrapperModel):
         async with self.governor.cost_slot(model_key=self.model_key):
             response = None
             budget_blocked = False
+            rejected = False
             completed = False
             try:
                 async with self.wrapped.request_stream(
@@ -86,6 +102,10 @@ class CostTrackingModel(WrapperModel):
                     completed = True
             except BudgetExhausted:
                 budget_blocked = True
+                raise
+            except BaseException as exc:
+                # Refused before the stream opened (a 4xx): nothing was generated.
+                rejected = response is None and rejected_before_generation(exc)
                 raise
             finally:
                 if response is not None:
@@ -106,5 +126,7 @@ class CostTrackingModel(WrapperModel):
                         ):
                             # Interrupted streams may omit final billed usage.
                             self.governor.ledger.record_unpriced(self.caller)
-                elif not budget_blocked and self.governor.config.enabled:
+                elif (
+                    not budget_blocked and not rejected and self.governor.config.enabled
+                ):
                     self.governor.ledger.record_unpriced(self.caller)

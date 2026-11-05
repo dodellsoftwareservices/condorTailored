@@ -11,7 +11,9 @@ consults two or three free Nvidia Nemotron analysts.
 | Key | Value | Meaning |
 | --- | --- | --- |
 | `monthlyCostCapUsd` | 30 | UTC calendar-month ceiling on paid spend |
-| `requestCostReserveUsd` | 0.15 | Worst case of one paid request, held while it is in flight |
+| `requestCostReserveUsd` | 0.20 | Worst case of one paid request, held while it is in flight |
+| `paidPriceCeilingUsdPerMillion` | 0.17 in / 0.55 out | OpenRouter `max_price` sent with every paid request |
+| `paidMaxContextTokens` | 1,048,576 | Largest prompt the model accepts |
 | `allowedPaidModels` | `openrouter:deepseek/deepseek-v4.1-flash-1017` | The only paid model permitted |
 
 How it works (`condor/llm/budget.py`, `condor/llm/cost_model.py`):
@@ -23,9 +25,22 @@ How it works (`condor/llm/budget.py`, `condor/llm/cost_model.py`):
   (`usage.include`), and the billed `cost` is what gets recorded. The bundled price
   catalogue does not know `deepseek-v4.1-flash-1017`, so before this change every paid
   response was logged `cost_unknown` and nothing could be capped.
-- **The reserve is a true bound, not a guess.** The paid model is pinned to
-  `wafer/mxfp4` with price ceilings of $0.13/M input and $0.50/M output and no fallback
-  routing. With its 1,048,576-token context, one request cannot exceed about $0.14.
+- **The reserve is a proven bound, not a guess.** The paid model is pinned to
+  `wafer/mxfp4` with no fallback routing and a price ceiling from the config. The config
+  validator computes the worst request that allows (context x input ceiling + 4,096 capped
+  output tokens x output ceiling, about $0.1805) and refuses to load if
+  `requestCostReserveUsd` is lower, or if a monthly cap has no ceiling at all.
+- **Keep the ceiling just above the endpoint's real price.** `wafer/mxfp4` was verified at
+  $0.16/M input and $0.50/M output on 2026-11-05. A ceiling below the real price does not
+  overspend; it makes OpenRouter filter the endpoint out and every request return 404. That
+  is exactly what happened on the first restart (the draft ceiling was $0.13), and the
+  desks could not think until it was corrected. Check
+  `https://openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints` when a
+  paid request starts failing with 404.
+- **A provider rejection is not spend.** A 4xx reply (bar 408) means the request was refused
+  before the model ran, so it is not booked. Otherwise a mis-set routing option would burn
+  the month's cap at the reserve per failed call. Timeouts, 5xx and dropped streams still
+  count as uncertain spend.
 - **Unpriced responses are booked at the reserve** rather than pausing every paid request
   for the month (a timeout would otherwise have locked paid work until the 1st).
 - **Orphaned reservations expire** after 30 minutes, so a crash cannot slowly eat the cap.
@@ -33,8 +48,8 @@ How it works (`condor/llm/budget.py`, `condor/llm/cost_model.py`):
 - **The baseline.** `data/llm_budget/spend-baseline.json` books spend that happened before
   metering. It is read from OpenRouter's `GET /api/v1/key` (`usage_monthly`, `usage_daily`)
   and is local, not committed. Refresh it by re-reading that endpoint.
-- OpenRouter also enforces its own hard limit on the key ($50/month at the time of
-  writing), so the $30 guard sits inside a provider-side backstop.
+- OpenRouter can also enforce its own limit on the key (`limit`, `limit_remaining` in the
+  same `/key` reading), which sits outside the $30 guard as a provider-side backstop.
 - A subscription (ACP) client cannot be metered, so it is refused while a dollar cap is on.
 
 Measured on 2026-11-05: about $0.001 per DeepSeek request, $4.96 spent in the month before

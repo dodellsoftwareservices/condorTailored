@@ -98,6 +98,13 @@ class _Model(BaseModel):
     )
 
 
+class PriceCeiling(_Model):
+    """OpenRouter ``max_price``: dollars per million tokens, per direction."""
+
+    prompt: float = Field(gt=0)
+    completion: float = Field(gt=0)
+
+
 class Thinking(_Model):
     """How hard the model is asked to think (OpenRouter ``reasoning``)."""
 
@@ -183,6 +190,15 @@ class Budget(_Model):
         gt=0,
         description="Worst-case cost of one paid request, held against the monthly cap while it is in flight. An unpriced response is booked at this amount. Must be at least the real worst case for the pinned model (its price ceilings times its context window).",
     )
+    paid_price_ceiling_usd_per_million: PriceCeiling | None = Field(
+        default=None,
+        description="OpenRouter max_price sent with every paid request, in dollars per million tokens. Required with a monthly cap. Set it a little above the pinned endpoint's current price: if the endpoint becomes dearer than this, requests fail with 404 rather than overspend.",
+    )
+    paid_max_context_tokens: int = Field(
+        default=1_048_576,
+        ge=1,
+        description="Largest prompt the pinned paid model accepts. Together with the price ceiling it bounds one request's cost, which requestCostReserveUsd must cover.",
+    )
     allowed_paid_models: tuple[str, ...] = Field(
         default=(),
         description="Paid model keys (e.g. openrouter:vendor/model) permitted while a monthly cap is set. Anything else paid is refused, because only these have price ceilings pinned. Free models are always allowed.",
@@ -196,10 +212,32 @@ class Budget(_Model):
                 f"budget.dailyRequestCap ({self.daily_request_cap})"
             )
         cap = self.monthly_cost_cap_usd
-        if cap is not None and self.request_cost_reserve_usd >= cap:
+        if cap is None:
+            return self
+        if self.request_cost_reserve_usd >= cap:
             raise ValueError(
                 f"budget.requestCostReserveUsd ({self.request_cost_reserve_usd}) "
                 f"must be below budget.monthlyCostCapUsd ({cap})"
+            )
+        ceiling = self.paid_price_ceiling_usd_per_million
+        if ceiling is None:
+            raise ValueError(
+                "budget.monthlyCostCapUsd needs budget.paidPriceCeilingUsdPerMillion: "
+                "without a price ceiling a paid request has no worst-case cost to reserve"
+            )
+        from condor.llm.budget import PAID_MAX_OUTPUT_TOKENS
+
+        worst = (
+            self.paid_max_context_tokens * ceiling.prompt
+            + PAID_MAX_OUTPUT_TOKENS * ceiling.completion
+        ) / 1_000_000
+        if worst > self.request_cost_reserve_usd:
+            raise ValueError(
+                f"budget.requestCostReserveUsd ({self.request_cost_reserve_usd}) is below "
+                f"the worst case of one paid request (${worst:.4f}: "
+                f"{self.paid_max_context_tokens:,} prompt tokens at "
+                f"${ceiling.prompt}/M plus {PAID_MAX_OUTPUT_TOKENS:,} output tokens at "
+                f"${ceiling.completion}/M)"
             )
         return self
 

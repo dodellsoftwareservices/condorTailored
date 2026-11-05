@@ -264,14 +264,19 @@ def test_a_monthly_cap_pins_the_paid_model_to_price_ceilings_without_fallbacks(
             "openrouterProviderOnly": {
                 "deepseek/deepseek-v4.1-flash-1017": ["wafer/mxfp4"]
             },
-            "budget": {"enabled": True, "monthlyCostCapUsd": 30},
+            "budget": {
+                "enabled": True,
+                "monthlyCostCapUsd": 30,
+                "requestCostReserveUsd": 0.2,
+                "paidPriceCeilingUsdPerMillion": {"prompt": 0.17, "completion": 0.55},
+            },
         },
     )
     body = PydanticAIClient(target)._model_settings()["extra_body"]
     assert body["usage"] == {"include": True}
     assert body["provider"] == {
         "only": ["wafer/mxfp4"],
-        "max_price": {"prompt": 0.13, "completion": 0.50},
+        "max_price": {"prompt": 0.17, "completion": 0.55},
         "allow_fallbacks": False,
     }
     # A free model in the same config keeps its own zero ceiling.

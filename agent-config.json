@@ -28,9 +28,11 @@
     "perRunRequestCap": 100,
     "pacing": true,
     "assumedRequestsPerTick": 8,
-    "_monthlyCostCapUsd": "Hard UTC calendar-month ceiling on paid model spend, in dollars. Paid requests reserve requestCostReserveUsd before they go out, free models are exempt, and a response whose price is unknown is booked at the reserve. Only allowedPaidModels may spend, and each is pinned to price ceilings (see openrouterProviderOnly). Verified provider spend so far this month is booked in data/llm_budget/spend-baseline.json.",
+    "_monthlyCostCapUsd": "Hard UTC calendar-month ceiling on paid model spend, in dollars. Paid requests reserve requestCostReserveUsd before they go out, free models are exempt, and a response whose price is unknown is booked at the reserve. Only allowedPaidModels may spend. Each is pinned to one provider (openrouterProviderOnly) and to paidPriceCeilingUsdPerMillion, set just above wafer/mxfp4's price verified 2026-11-05 ($0.16/M in, $0.50/M out); a dearer endpoint fails with 404 instead of overspending. The validator rejects a requestCostReserveUsd below the worst case that ceiling allows. Verified provider spend so far this month is booked in data/llm_budget/spend-baseline.json.",
     "monthlyCostCapUsd": 30,
-    "requestCostReserveUsd": 0.15,
+    "requestCostReserveUsd": 0.2,
+    "paidPriceCeilingUsdPerMillion": { "prompt": 0.17, "completion": 0.55 },
+    "paidMaxContextTokens": 1048576,
     "allowedPaidModels": ["openrouter:deepseek/deepseek-v4.1-flash-1017"]
   }
 }

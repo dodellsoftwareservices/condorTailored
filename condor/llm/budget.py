@@ -55,6 +55,10 @@ log = logging.getLogger(__name__)
 # limit every crash would permanently shave RESERVE dollars off the month's cap.
 RESERVATION_TTL_SEC = 1800
 
+# With a dollar cap, output is limited to this many tokens (see CostTrackingModel). It is
+# part of the worst-case cost of one request, so the config validator uses it too.
+PAID_MAX_OUTPUT_TOKENS = 4096
+
 
 def unmetered_backend_error() -> str | None:
     budget = get_agent_config().budget

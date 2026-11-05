@@ -95,6 +95,25 @@
           "title": "Requestcostreserveusd",
           "type": "number"
         },
+        "paidPriceCeilingUsdPerMillion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PriceCeiling"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OpenRouter max_price sent with every paid request, in dollars per million tokens. Required with a monthly cap. Set it a little above the pinned endpoint's current price: if the endpoint becomes dearer than this, requests fail with 404 rather than overspend."
+        },
+        "paidMaxContextTokens": {
+          "default": 1048576,
+          "description": "Largest prompt the pinned paid model accepts. Together with the price ceiling it bounds one request's cost, which requestCostReserveUsd must cover.",
+          "minimum": 1,
+          "title": "Paidmaxcontexttokens",
+          "type": "integer"
+        },
         "allowedPaidModels": {
           "default": [],
           "description": "Paid model keys (e.g. openrouter:vendor/model) permitted while a monthly cap is set. Anything else paid is refused, because only these have price ceilings pinned. Free models are always allowed.",
@@ -106,6 +125,28 @@
         }
       },
       "title": "Budget",
+      "type": "object"
+    },
+    "PriceCeiling": {
+      "additionalProperties": true,
+      "description": "OpenRouter ``max_price``: dollars per million tokens, per direction.",
+      "properties": {
+        "prompt": {
+          "exclusiveMinimum": 0,
+          "title": "Prompt",
+          "type": "number"
+        },
+        "completion": {
+          "exclusiveMinimum": 0,
+          "title": "Completion",
+          "type": "number"
+        }
+      },
+      "required": [
+        "prompt",
+        "completion"
+      ],
+      "title": "PriceCeiling",
       "type": "object"
     },
     "Thinking": {

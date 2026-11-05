@@ -965,12 +965,16 @@ class PydanticAIClient:
                     "max_price": {"prompt": 0, "completion": 0},
                 }
             elif cfg.budget.monthly_cost_cap_usd is not None:
-                # The admitted paid model is pinned to Wafer MXFP4. These
-                # price ceilings plus its 1,048,576-token context bound keep
-                # the worst request under the configured $0.15 reservation.
+                # Pinned endpoint, no fallback routing, and a price ceiling from the
+                # config. The config validator proves requestCostReserveUsd covers
+                # the worst request these allow (context x ceiling + capped output).
+                ceiling = cfg.budget.paid_price_ceiling_usd_per_million
                 body["provider"] = {
                     **body.get("provider", {}),
-                    "max_price": {"prompt": 0.13, "completion": 0.50},
+                    "max_price": {
+                        "prompt": ceiling.prompt,
+                        "completion": ceiling.completion,
+                    },
                     "allow_fallbacks": False,
                 }
             if body:
