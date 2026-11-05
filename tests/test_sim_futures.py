@@ -396,3 +396,36 @@ def test_service_shorts_persists_accrues_funding_and_reports_costs(tmp_path):
         run(s.portfolio())["positions"] == []
         and run(s.config())["fee_override"]["maker"] == "0.01"
     )
+
+
+def test_dashboard_reports_equity_and_settled_outcomes_for_the_paper_dashboard(
+    tmp_path,
+):
+    clock = iter(float(NOW + i * 60) for i in range(10_000))
+    k = FakeFut()
+
+    async def nosleep(_):
+        return None
+
+    s = F.FuturesService(
+        k,
+        tmp_path / "f.json",
+        clock=lambda: next(clock),
+        sleeper=nosleep,
+        start_cash=D("50000"),
+    )
+    idle = run(s.dashboard())
+    assert D(idle["equity"]) == D("50000") and D(idle["start_cash"]) == D("50000")
+    assert idle["outcomes"] == [] and D(idle["max_order_notional"]) == D("2500")
+
+    run(s.place(symbol="BTC-USD", side="sell", qty=D("10"), client_order_id="o1"))
+    open_short = run(s.dashboard())
+    assert D(open_short["gross_exposure"]) > 0
+    assert open_short["outcomes"] == []  # opening a position settles nothing
+
+    run(s.place(symbol="BTC-USD", side="buy", qty=D("10"), client_order_id="c1"))
+    done = run(s.dashboard())
+    # Sold at the 100 bid, bought back at the 101 ask: one closed trade, a loss.
+    assert len(done["outcomes"]) == 1 and done["outcomes"][0]["pnl"] < 0
+    assert D(done["equity"]) < D("50000") and D(done["fees"]) > 0
+    assert D(done["gross_exposure"]) == 0

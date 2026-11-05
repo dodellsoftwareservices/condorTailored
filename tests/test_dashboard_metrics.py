@@ -1,3 +1,4 @@
+import json
 import math
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -143,6 +144,25 @@ def test_durable_sim_history_replaces_bucket_and_starts_fresh_after_reset():
     assert all(row["timestamp"] >= 1900 for row in reset)
 
 
+def desk_stub(*, equity, cash, gross, start="50000"):
+    """A stand-in for a $50k Kraken desk service (market maker or futures)."""
+    return SimpleNamespace(
+        dashboard=AsyncMock(
+            return_value={
+                "start_cash": start,
+                "equity": equity,
+                "cash": cash,
+                "gross_exposure": gross,
+                "max_order_notional": "2500",
+                "volume": "0",
+                "fees": "0",
+                "outcomes": [],
+                "created": NOW - 2 * DAY,
+            }
+        )
+    )
+
+
 @pytest.fixture
 def api_client(monkeypatch):
     alpaca = SimpleNamespace(
@@ -178,6 +198,20 @@ def api_client(monkeypatch):
     )
     monkeypatch.setattr(dashboard, "get_alpaca_client", lambda: alpaca)
     monkeypatch.setattr(dashboard, "get_sim_service", lambda: sim)
+    mm = desk_stub(equity="50100", cash="49000", gross="1100")
+    fut = desk_stub(equity="49900", cash="50000", gross="0")
+    monkeypatch.setattr(dashboard, "get_mm_service", lambda: mm)
+    monkeypatch.setattr(dashboard, "get_fut_service", lambda: fut)
+    # KRAKEN_DESKS captured the real getters at import; point it at the stubs.
+    monkeypatch.setattr(
+        dashboard,
+        "KRAKEN_DESKS",
+        (
+            ("kraken_sim", "krakenSimHodl", lambda: sim),
+            ("kraken_mm", "krakenSimMM", lambda: mm),
+            ("kraken_fut", "krakenSimFutures", lambda: fut),
+        ),
+    )
     monkeypatch.setattr(dashboard, "_cache", {})
     monkeypatch.setattr(dashboard.time, "time", lambda: NOW)
     monkeypatch.setenv("EQUITY_MAX_ORDER_NOTIONAL", "2500")
@@ -192,7 +226,9 @@ def api_client(monkeypatch):
     app = FastAPI()
     app.include_router(dashboard.router)
     app.dependency_overrides[get_current_user] = lambda: WebUser(id=1, role="admin")
-    return TestClient(app), alpaca, sim
+    client = TestClient(app)
+    client.mm, client.fut = mm, fut
+    return client, alpaca, sim
 
 
 def test_dashboard_uses_initial_equity_and_preserves_order_cap(api_client):
@@ -200,15 +236,53 @@ def test_dashboard_uses_initial_equity_and_preserves_order_cap(api_client):
     result = client.get("/dashboard/paper?range=1M")
     assert result.status_code == 200
     data = result.json()
-    assert data["summary"]["starting_capital"] == 200000
-    assert data["summary"]["equity"] == 200250
+    assert data["summary"]["starting_capital"] == 300000
+    assert data["summary"]["equity"] == 300250
     assert data["summary"]["pnl"] == 250
-    assert data["summary"]["roi_pct"] == pytest.approx(0.125)
+    assert data["summary"]["roi_pct"] == pytest.approx(250 / 300000 * 100)
     assert data["summary"]["batting_average"] == pytest.approx(200 / 3)
     assert data["summary"]["profit_factor"] == pytest.approx(110 / 350)
-    assert [a["order_cap"] for a in data["accounts"]] == [2500, 2500]
+    assert [a["order_cap"] for a in data["accounts"]] == [2500] * 4
     client.get("/dashboard/paper?range=1M")
     assert alpaca.get_account.await_count == sim.dashboard.await_count == 1
+
+
+def test_dashboard_counts_every_kraken_desk_not_only_the_spot_trader(api_client):
+    """Regression: the dashboard showed ~$148.7k because the market maker and the
+    futures desk ($50k each) were never read."""
+    client, _, _ = api_client
+    data = client.get("/dashboard/paper?range=1M").json()
+    assert [a["id"] for a in data["accounts"]] == [
+        "alpaca",
+        "kraken_sim",
+        "kraken_mm",
+        "kraken_fut",
+    ]
+    assert [a["label"] for a in data["accounts"][1:]] == [
+        "krakenSimHodl",
+        "krakenSimMM",
+        "krakenSimFutures",
+    ]
+    by_id = {a["id"]: a for a in data["accounts"]}
+    assert by_id["kraken_mm"]["starting_capital"] == 50000
+    assert by_id["kraken_mm"]["equity"] == 50100
+    assert by_id["kraken_fut"]["equity"] == 49900
+    assert data["summary"]["equity"] == sum(a["equity"] for a in data["accounts"])
+    assert data["summary"]["starting_capital"] == sum(
+        a["starting_capital"] for a in data["accounts"]
+    )
+
+
+def test_one_unreachable_desk_withholds_the_total_but_not_the_others(api_client):
+    client, _, _ = api_client
+    client.fut.dashboard.side_effect = OSError("kraken futures unreachable")
+    data = client.get("/dashboard/paper?range=1M").json()
+    by_id = {a["id"]: a for a in data["accounts"]}
+    assert by_id["kraken_fut"]["status"] == "unavailable"
+    assert by_id["kraken_fut"]["equity"] is None
+    assert by_id["kraken_mm"]["equity"] == 50100
+    assert data["summary"]["status"] == "partial"
+    assert data["summary"]["equity"] is None
 
 
 def test_unavailable_account_does_not_turn_partial_balances_into_total(api_client):
@@ -217,7 +291,7 @@ def test_unavailable_account_does_not_turn_partial_balances_into_total(api_clien
     result = client.get("/dashboard/paper").json()
     assert result["summary"]["equity"] is None
     assert result["summary"]["pnl"] is None
-    assert result["summary"]["starting_capital"] == 200000
+    assert result["summary"]["starting_capital"] == 300000
     assert result["accounts"][1]["equity"] == 99750
     assert "private provider" not in str(result)
 
@@ -273,3 +347,62 @@ def test_background_sampling_uses_observation_path_without_advancing_orders(
         "kraken_sim", NOW + 1, 100025, created=NOW - 100, starting=100000
     )
     assert history[-1]["equity"] == 100025
+
+
+def test_background_sampling_records_every_desk_that_has_a_ledger(
+    tmp_path, monkeypatch
+):
+    import asyncio
+
+    from condor import dashboard_history
+    from condor.web.routes import sim_exchange
+
+    folder = dashboard_history.data_dir() / "sim_exchange"
+    folder.mkdir(parents=True)
+    for name in ("kraken_default.json", "kraken_mm.json", "kraken_futures.json"):
+        (folder / name).write_text("{}")
+    stubs = {
+        "get_sim_service": desk_stub(equity="50010", cash="50010", gross="0"),
+        "get_mm_service": desk_stub(equity="50020", cash="50020", gross="0"),
+        "get_fut_service": desk_stub(equity="50030", cash="50030", gross="0"),
+    }
+    for getter, stub in stubs.items():
+        monkeypatch.setattr(sim_exchange, getter, lambda stub=stub: stub)
+    monkeypatch.setattr(dashboard_history.time, "time", lambda: NOW)
+    asyncio.run(dashboard_history.sample_sim_equity())
+    for account, equity in (
+        ("kraken_sim", 50010),
+        ("kraken_mm", 50020),
+        ("kraken_fut", 50030),
+    ):
+        path = dashboard_history.data_dir() / "dashboard" / f"{account}.json"
+        assert json.loads(path.read_text())[-1]["equity"] == equity
+
+
+def test_one_failing_desk_does_not_stop_the_others_recording(tmp_path, monkeypatch):
+    import asyncio
+
+    from condor import dashboard_history
+    from condor.web.routes import sim_exchange
+
+    folder = dashboard_history.data_dir() / "sim_exchange"
+    folder.mkdir(parents=True)
+    for name in ("kraken_default.json", "kraken_mm.json", "kraken_futures.json"):
+        (folder / name).write_text("{}")
+    broken = SimpleNamespace(dashboard=AsyncMock(side_effect=OSError("down")))
+    ok = desk_stub(equity="50020", cash="50020", gross="0")
+    monkeypatch.setattr(sim_exchange, "get_sim_service", lambda: broken)
+    monkeypatch.setattr(sim_exchange, "get_mm_service", lambda: ok)
+    monkeypatch.setattr(sim_exchange, "get_fut_service", lambda: broken)
+    monkeypatch.setattr(dashboard_history.time, "time", lambda: NOW)
+    asyncio.run(dashboard_history.sample_sim_equity())
+    folder = dashboard_history.data_dir() / "dashboard"
+    assert json.loads((folder / "kraken_mm.json").read_text())[-1]["equity"] == 50020
+    assert not (folder / "kraken_sim.json").exists()
+
+
+def test_history_only_accepts_the_known_desk_accounts():
+    for account in ("kraken_sim", "kraken_mm", "kraken_fut"):
+        assert record_equity(account, NOW, 1, created=NOW - 1, starting=1)
+    with pytest.raises(ValueError):
+        record_equity("../etc/passwd", NOW, 1, created=NOW - 1, starting=1)

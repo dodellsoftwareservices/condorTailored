@@ -24,7 +24,11 @@ from condor.web.auth import get_current_user, require_admin
 from condor.web.models import WebUser
 from condor.web.routes._equity_client import get_alpaca_client
 from condor.web.routes.paper_equities import _max_order_notional
-from condor.web.routes.sim_exchange import get_sim_service
+from condor.web.routes.sim_exchange import (
+    get_fut_service,
+    get_mm_service,
+    get_sim_service,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -146,12 +150,24 @@ async def _alpaca(period: str, now: float) -> dict:
     return _finish(account, period, now)
 
 
-async def _kraken(period: str, now: float) -> dict:
+# (account id, label, service getter). Ids are the history-file keys, so "kraken_sim"
+# keeps the spot trader's existing history. Labels match the Portfolio tabs.
+KRAKEN_DESKS = (
+    ("kraken_sim", "krakenSimHodl", get_sim_service),
+    ("kraken_mm", "krakenSimMM", get_mm_service),
+    ("kraken_fut", "krakenSimFutures", get_fut_service),
+)
+KRAKEN_DESK_START = 50_000.0  # Placeholder only; a reachable desk reports its own.
+
+
+async def _kraken(
+    account_id: str, label: str, service, period: str, now: float
+) -> dict:
     account = {
-        "id": "kraken_sim",
-        "label": "KrakenSim",
+        "id": account_id,
+        "label": label,
         "status": "unavailable",
-        "starting_capital": STARTING_CAPITAL,
+        "starting_capital": KRAKEN_DESK_START,
         "equity": None,
         "cash": None,
         "deployed": None,
@@ -162,10 +178,10 @@ async def _kraken(period: str, now: float) -> dict:
         "points": [],
         "notes": [],
     }
-    result = await _read(get_sim_service().dashboard())
+    result = await _read(service().dashboard())
     if isinstance(result, Exception):
         account["notes"] = [
-            "Could not mark KrakenSim holdings using current Kraken prices."
+            f"Could not mark {label} holdings using current Kraken prices."
         ]
         return _finish(account, period, now)
     account.update(
@@ -182,14 +198,14 @@ async def _kraken(period: str, now: float) -> dict:
     )
     try:
         account["points"] = record_equity(
-            "kraken_sim",
+            account_id,
             now,
             account["equity"],
             created=result["created"],
             starting=account["starting_capital"],
         )
     except (OSError, ValueError):
-        logger.exception("Could not record KrakenSim dashboard history")
+        logger.exception("Could not record %s dashboard history", label)
         account["points"] = [{"timestamp": now, "equity": account["equity"]}]
         account["notes"].append("Equity history could not be saved.")
     return _finish(account, period, now)
@@ -266,7 +282,15 @@ async def paper_dashboard(
 
     async def load():
         now = time.time()
-        accounts = list(await asyncio.gather(_alpaca(range, now), _kraken(range, now)))
+        accounts = list(
+            await asyncio.gather(
+                _alpaca(range, now),
+                *(
+                    _kraken(account_id, label, service, range, now)
+                    for account_id, label, service in KRAKEN_DESKS
+                ),
+            )
+        )
         response = {
             "as_of": now,
             "range": range,

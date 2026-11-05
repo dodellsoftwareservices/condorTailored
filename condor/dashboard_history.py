@@ -12,12 +12,16 @@ from condor.paths import data_dir
 
 logger = logging.getLogger(__name__)
 
+# Account keys are chosen by the server, never taken from a URL. One per Kraken desk:
+# spot trader (hodl), market maker, perpetual futures.
+DESK_ACCOUNTS = frozenset({"kraken_sim", "kraken_mm", "kraken_fut"})
+
 
 def record_equity(
     account: str, timestamp: float, equity: float, *, created: float, starting: float
 ) -> list[dict]:
     # Account keys are selected by the server, never taken from a URL.
-    if account not in {"kraken_sim"}:
+    if account not in DESK_ACCOUNTS:
         raise ValueError("Unknown dashboard history account")
     path = data_dir() / "dashboard" / f"{account}.json"
     history = json.loads(path.read_text()) if path.exists() else []
@@ -39,22 +43,40 @@ def record_equity(
 
 
 async def sample_sim_equity(context=None) -> None:
-    """Collect marks even when the browser is closed; never match orders."""
-    if not (data_dir() / "sim_exchange" / "kraken_default.json").exists():
-        return
-    from condor.web.routes.sim_exchange import get_sim_service
+    """Collect marks for every Kraken desk, even when the browser is closed.
 
-    try:
-        result = await asyncio.wait_for(get_sim_service().dashboard(), timeout=12)
-        record_equity(
-            "kraken_sim",
-            time.time(),
-            float(result["equity"]),
-            created=result["created"],
-            starting=float(result["start_cash"]),
-        )
-    except Exception as exc:
-        logger.warning("Dashboard equity sample unavailable (%s)", type(exc).__name__)
+    Never matches orders. Each desk is sampled independently so one unreachable
+    ledger or market-data call does not stop the others recording.
+    """
+    from condor.web.routes.sim_exchange import (
+        get_fut_service,
+        get_mm_service,
+        get_sim_service,
+    )
+
+    desks = (
+        ("kraken_sim", "kraken_default.json", get_sim_service),
+        ("kraken_mm", "kraken_mm.json", get_mm_service),
+        ("kraken_fut", "kraken_futures.json", get_fut_service),
+    )
+    for account, ledger, getter in desks:
+        if not (data_dir() / "sim_exchange" / ledger).exists():
+            continue
+        try:
+            result = await asyncio.wait_for(getter().dashboard(), timeout=12)
+            record_equity(
+                account,
+                time.time(),
+                float(result["equity"]),
+                created=result["created"],
+                starting=float(result["start_cash"]),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Dashboard equity sample for %s unavailable (%s)",
+                account,
+                type(exc).__name__,
+            )
 
 
 def register_jobs(application) -> None:

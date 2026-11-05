@@ -1254,6 +1254,43 @@ class FuturesService:
             self._save(acct)
             return portfolio(acct, marks, self._clock())
 
+    async def dashboard(self) -> dict:
+        """Equity, exposure and settled outcomes for the paper dashboard.
+
+        Same shape as the spot ``SimService.dashboard`` so the dashboard route can
+        treat every Kraken desk alike. Marks positions and accrues funding (so equity
+        is not overstated) but never advances resting orders.
+        """
+        async with self._lock:
+            acct = self._load()
+            marks = await self._touch(acct)
+            self._save(acct)
+            report = portfolio(acct, marks, self._clock())
+            # A fill with realized P&L closed (part of) a position. A close at exactly
+            # the entry price books 0 and is not counted; that undercounts breakevens.
+            closed: dict[str, dict] = {}
+            for fill in acct.fills:
+                if not fill.realized_pnl:
+                    continue
+                item = closed.setdefault(
+                    fill.order_id, {"pnl": D("0"), "timestamp": fill.ts}
+                )
+                item["pnl"] += fill.realized_pnl
+                item["timestamp"] = max(item["timestamp"], fill.ts)
+            report.update(
+                created=acct.created,
+                max_order_notional=str(acct.limits.max_order_notional),
+                volume=str(acct.volume),
+                fees=str(acct.fees_paid),
+                realized_pnl=str(acct.realized_pnl),
+                outcomes=[
+                    {"pnl": float(item["pnl"]), "timestamp": item["timestamp"]}
+                    for item in closed.values()
+                ],
+                fills=len(acct.fills),
+            )
+            return report
+
     async def costs(self) -> dict:
         from .service import count_llm_requests
 
