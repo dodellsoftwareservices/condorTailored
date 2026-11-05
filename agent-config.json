@@ -27,6 +27,10 @@
     "requestsPerMinute": 18,
     "perRunRequestCap": 100,
     "pacing": true,
-    "assumedRequestsPerTick": 8
+    "assumedRequestsPerTick": 8,
+    "_monthlyCostCapUsd": "Hard UTC calendar-month ceiling on paid model spend, in dollars. Paid requests reserve requestCostReserveUsd before they go out, free models are exempt, and a response whose price is unknown is booked at the reserve. Only allowedPaidModels may spend, and each is pinned to price ceilings (see openrouterProviderOnly). Verified provider spend so far this month is booked in data/llm_budget/spend-baseline.json.",
+    "monthlyCostCapUsd": 30,
+    "requestCostReserveUsd": 0.15,
+    "allowedPaidModels": ["openrouter:deepseek/deepseek-v4.1-flash-1017"]
   }
 }

@@ -8,6 +8,20 @@ from pydantic_ai.models.wrapper import WrapperModel
 from condor.llm.budget import BudgetExhausted, is_free_model
 
 
+def response_cost_usd(response, model_key: str = "") -> float:
+    """Prefer the gateway's billed cost over a bundled model-price catalog."""
+    if model_key.startswith("openrouter:") and is_free_model(model_key):
+        return 0.0
+    details = getattr(response, "provider_details", None) or {}
+    if model_key.startswith("openrouter:") and "cost" in details:
+        cost = float(details["cost"])
+    else:
+        cost = float(response.cost().total_price)
+    if not math.isfinite(cost) or cost < 0:
+        raise ValueError("Invalid provider pricing")
+    return cost
+
+
 class CostTrackingModel(WrapperModel):
     def __init__(self, model, governor, caller: str, model_key: str):
         super().__init__(model)
@@ -16,9 +30,9 @@ class CostTrackingModel(WrapperModel):
         self.model_key = model_key
 
     def _bounded_settings(self, settings):
-        if (
-            self.governor.config.enabled
-            and self.governor.config.daily_cost_cap_usd is not None
+        if self.governor.config.enabled and (
+            self.governor.config.daily_cost_cap_usd is not None
+            or self.governor.config.monthly_cost_cap_usd is not None
         ):
             settings = dict(settings or {})
             settings["max_tokens"] = min(settings.get("max_tokens") or 4096, 4096)
@@ -28,21 +42,14 @@ class CostTrackingModel(WrapperModel):
         if not self.governor.config.enabled:
             return
         try:
-            if self.model_key.startswith("openrouter:") and is_free_model(
-                self.model_key
-            ):
-                cost = 0.0
-            else:
-                cost = float(response.cost().total_price)
-            if not math.isfinite(cost) or cost < 0:
-                raise ValueError("Invalid provider pricing")
+            cost = response_cost_usd(response, self.model_key)
         except Exception:
             self.governor.ledger.record_unpriced(self.caller)
         else:
             self.governor.ledger.record_cost(self.caller, cost)
 
     async def request(self, messages, model_settings, model_request_parameters):
-        async with self.governor.cost_slot():
+        async with self.governor.cost_slot(model_key=self.model_key):
             try:
                 response = await self.wrapped.request(
                     messages,
@@ -63,7 +70,7 @@ class CostTrackingModel(WrapperModel):
     async def request_stream(
         self, messages, model_settings, model_request_parameters, run_context=None
     ):
-        async with self.governor.cost_slot():
+        async with self.governor.cost_slot(model_key=self.model_key):
             response = None
             budget_blocked = False
             completed = False

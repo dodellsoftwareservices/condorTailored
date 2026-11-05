@@ -36,6 +36,7 @@ import math
 import os
 import threading
 import time
+import uuid
 from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -49,9 +50,17 @@ from condor.paths import data_dir
 log = logging.getLogger(__name__)
 
 
+# A paid request cannot legitimately be in flight longer than a tick may run, so a
+# reservation older than this belongs to a process that died mid-request. Without a
+# limit every crash would permanently shave RESERVE dollars off the month's cap.
+RESERVATION_TTL_SEC = 1800
+
+
 def unmetered_backend_error() -> str | None:
     budget = get_agent_config().budget
-    if budget.enabled and budget.daily_cost_cap_usd is not None:
+    if budget.enabled and (
+        budget.daily_cost_cap_usd is not None or budget.monthly_cost_cap_usd is not None
+    ):
         return (
             "The configured dollar budget cannot meter ACP subscription clients. "
             "Choose a direct model provider (OpenRouter, OpenAI, Anthropic, etc.) "
@@ -255,6 +264,93 @@ class RequestLedger:
         with self._lock:
             self._fold(self._clock() if now is None else now)
             return self._unpriced_costs
+
+    def spend_window(self, now: float | None = None) -> dict[str, Any]:
+        """Month/day costs after a verified provider baseline, including unknowns.
+
+        The baseline books historical provider spend without rewriting old
+        request records whose adapter could not retain billed cost.
+        """
+        now = self._clock() if now is None else now
+        day = utc_day(now)
+        month = day[:6]
+        baseline_path = self.directory / "spend-baseline.json"
+        baseline: dict[str, Any] = {}
+        if baseline_path.exists():
+            try:
+                baseline = json.loads(baseline_path.read_text())
+                if not isinstance(baseline, dict):
+                    raise ValueError("invalid baseline")
+                for key in ("as_of", "day_used_usd", "month_used_usd"):
+                    if (
+                        not math.isfinite(float(baseline[key]))
+                        or float(baseline[key]) < 0
+                    ):
+                        raise ValueError("invalid baseline amount")
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                raise BudgetExhausted(
+                    "Spend baseline is unreadable; paid requests paused",
+                    next_reset(now),
+                ) from exc
+        cutoff = (
+            float(baseline.get("as_of", 0)) if baseline.get("month") == month else 0.0
+        )
+        monthly = float(baseline.get("month_used_usd", 0)) if cutoff else 0.0
+        daily = (
+            float(baseline.get("day_used_usd", 0))
+            if baseline.get("day") == day
+            else 0.0
+        )
+        unknown = 0
+        unknown_today = 0
+        reservations: dict[str, tuple[float, float]] = {}
+        for path in self.directory.glob(f"requests-{month}*.jsonl"):
+            try:
+                for line in path.read_text().splitlines():
+                    try:
+                        row = json.loads(line)
+                        if float(row.get("t", 0)) <= cutoff:
+                            continue
+                        if row.get("ev") == "cost_unknown":
+                            unknown += 1
+                            if path == self.path_for(day):
+                                unknown_today += 1
+                        elif row.get("ev") == "cost_reserve":
+                            amount = float(row["usd"])
+                            if not math.isfinite(amount) or amount < 0:
+                                raise ValueError("invalid reservation")
+                            reservations[str(row["id"])] = (amount, float(row["t"]))
+                        elif row.get("ev") == "cost_release":
+                            reservations.pop(str(row["id"]), None)
+                        elif row.get("ev") == "cost":
+                            amount = float(row["usd"])
+                            if not math.isfinite(amount) or amount < 0:
+                                raise ValueError("invalid cost")
+                            monthly += amount
+                            if path == self.path_for(day):
+                                daily += amount
+                    except (ValueError, TypeError, KeyError, AttributeError):
+                        unknown += 1
+                        if path == self.path_for(day):
+                            unknown_today += 1
+            except OSError as exc:
+                raise BudgetExhausted(
+                    "Cannot read monthly spend ledger; paid requests paused",
+                    next_reset(now),
+                ) from exc
+        held = sum(
+            amount
+            for amount, started in reservations.values()
+            if now - started < RESERVATION_TTL_SEC
+        )
+        return {
+            "month": month,
+            "month_used_usd": monthly,
+            "day_used_usd": daily,
+            "reserved_usd": held,
+            "unpriced": unknown,
+            "unpriced_today": unknown_today,
+        }
 
     def record_unpriced(self, caller: str) -> None:
         with self._lock:
@@ -518,41 +614,95 @@ class RequestGovernor:
 
     # -- admission --
 
-    def check_cost_budget(self) -> None:
+    def check_cost_budget(self, reserve_usd: float = 0.0) -> None:
         cfg = self.config
-        if not cfg.enabled or cfg.daily_cost_cap_usd is None:
+        if not cfg.enabled or (
+            cfg.daily_cost_cap_usd is None and cfg.monthly_cost_cap_usd is None
+        ):
             return
         now = self._clock()
-        if self.ledger.unpriced_today(now):
+        window = (
+            self.ledger.spend_window(now)
+            if cfg.monthly_cost_cap_usd is not None
+            else None
+        )
+        if window is None and self.ledger.unpriced_today(now):
             raise BudgetExhausted(
                 "Dollar budget paused: a response could not be priced. "
                 "Check provider pricing before continuing; resets at "
                 + _clock_label(next_reset(now)),
                 next_reset(now),
             )
-        spent = self.ledger.cost_today(now)
-        if spent >= cfg.daily_cost_cap_usd:
+        if window is None:
+            spent = self.ledger.cost_today(now)
+            if cfg.daily_cost_cap_usd is not None and spent >= cfg.daily_cost_cap_usd:
+                raise BudgetExhausted(
+                    f"daily cost budget spent (${spent:.2f} of ${cfg.daily_cost_cap_usd:.2f}); "
+                    f"resets at {_clock_label(next_reset(now))}",
+                    next_reset(now),
+                )
+            return
+        # Monthly mode. The paid model is pinned with price ceilings, so one request can
+        # never cost more than the reserve. A response whose price is unknown (a timeout,
+        # a cancelled stream, a missing usage block) is therefore booked at the reserve
+        # rather than halting every paid request until the month rolls over.
+        month_used = (
+            window["month_used_usd"] + window["unpriced"] * cfg.request_cost_reserve_usd
+        )
+        day_used = (
+            window["day_used_usd"]
+            + window["unpriced_today"] * cfg.request_cost_reserve_usd
+        )
+        held = window["reserved_usd"]
+        if month_used + held + reserve_usd >= cfg.monthly_cost_cap_usd:
+            dt = datetime.fromtimestamp(now, timezone.utc)
+            reset = datetime(
+                dt.year + (dt.month == 12), dt.month % 12 + 1, 1, tzinfo=timezone.utc
+            ).timestamp()
             raise BudgetExhausted(
-                f"daily cost budget spent (${spent:.2f} of ${cfg.daily_cost_cap_usd:.2f}); "
+                f"monthly cost budget reached: ${month_used:.4f} used of "
+                f"${cfg.monthly_cost_cap_usd:.2f}; ${reserve_usd:.2f} required for the next request",
+                reset,
+            )
+        if (
+            cfg.daily_cost_cap_usd is not None
+            and day_used + held + reserve_usd >= cfg.daily_cost_cap_usd
+        ):
+            raise BudgetExhausted(
+                f"daily cost budget spent (${day_used:.2f} of ${cfg.daily_cost_cap_usd:.2f}); "
                 f"resets at {_clock_label(next_reset(now))}",
                 next_reset(now),
             )
 
     @asynccontextmanager
-    async def cost_slot(self):
+    async def cost_slot(self, *, model_key: str = ""):
         """One priced request in flight across processes when dollars are capped.
 
         Actual cost is only known after a response. Serializing admission limits
         overshoot to that response, instead of a whole run or concurrent runs.
         """
         cfg = self.config
-        if not cfg.enabled or cfg.daily_cost_cap_usd is None:
+        free = model_key.startswith("openrouter:") and is_free_model(model_key)
+        if (
+            not cfg.enabled
+            or free
+            or (cfg.daily_cost_cap_usd is None and cfg.monthly_cost_cap_usd is None)
+        ):
             yield
             return
+        if (
+            cfg.monthly_cost_cap_usd is not None
+            and model_key not in cfg.allowed_paid_models
+        ):
+            raise BudgetExhausted(
+                "This paid model is outside the monthly budget's approved pricing envelope",
+                next_reset(self._clock()),
+            )
         if self._cost_gate is None:
             self._cost_gate = asyncio.Lock()
         async with self._cost_gate:
             fd = None
+            reservation = None
             try:
                 if fcntl is not None:
                     self.ledger.directory.mkdir(parents=True, exist_ok=True)
@@ -567,9 +717,30 @@ class RequestGovernor:
                             break
                         except BlockingIOError:
                             await asyncio.sleep(0.05)
-                self.check_cost_budget()
+                self.check_cost_budget(
+                    cfg.request_cost_reserve_usd
+                    if cfg.monthly_cost_cap_usd is not None
+                    else 0.0
+                )
+                if cfg.monthly_cost_cap_usd is not None:
+                    reservation = uuid.uuid4().hex
+                    now = self._clock()
+                    self.ledger._append(
+                        now,
+                        {
+                            "t": now,
+                            "ev": "cost_reserve",
+                            "id": reservation,
+                            "usd": cfg.request_cost_reserve_usd,
+                        },
+                    )
                 yield
             finally:
+                if reservation is not None:
+                    now = self._clock()
+                    self.ledger._append(
+                        now, {"t": now, "ev": "cost_release", "id": reservation}
+                    )
                 if fd is not None:
                     fcntl.flock(fd, fcntl.LOCK_UN)
                     os.close(fd)
@@ -614,7 +785,8 @@ class RequestGovernor:
                         f"back); resets at {_clock_label(next_reset(now))}",
                         next_reset(now),
                     )
-                self.check_cost_budget()
+                if not is_free_model(model_id):
+                    self.check_cost_budget()
                 wait = max(
                     self._cooldown_until - now,
                     self._rpm_wait(now, cfg.requests_per_minute),

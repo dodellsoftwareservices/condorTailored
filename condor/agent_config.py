@@ -173,6 +173,20 @@ class Budget(_Model):
         gt=0,
         description="UTC daily spend threshold across direct model providers. With a cap, requests are serialized and output is capped at 4096 tokens. One response can overshoot; unknown pricing pauses requests. ACP subscription clients are refused. Null disables the dollar limit.",
     )
+    monthly_cost_cap_usd: float | None = Field(
+        default=None,
+        gt=0,
+        description="UTC calendar-month spend ceiling. Paid requests reserve their configured worst-case cost before admission; free models remain available.",
+    )
+    request_cost_reserve_usd: float = Field(
+        default=0.15,
+        gt=0,
+        description="Worst-case cost of one paid request, held against the monthly cap while it is in flight. An unpriced response is booked at this amount. Must be at least the real worst case for the pinned model (its price ceilings times its context window).",
+    )
+    allowed_paid_models: tuple[str, ...] = Field(
+        default=(),
+        description="Paid model keys (e.g. openrouter:vendor/model) permitted while a monthly cap is set. Anything else paid is refused, because only these have price ceilings pinned. Free models are always allowed.",
+    )
 
     @model_validator(mode="after")
     def _reserve_fits(self) -> "Budget":
@@ -180,6 +194,12 @@ class Budget(_Model):
             raise ValueError(
                 f"budget.reserveRequests ({self.reserve_requests}) must be below "
                 f"budget.dailyRequestCap ({self.daily_request_cap})"
+            )
+        cap = self.monthly_cost_cap_usd
+        if cap is not None and self.request_cost_reserve_usd >= cap:
+            raise ValueError(
+                f"budget.requestCostReserveUsd ({self.request_cost_reserve_usd}) "
+                f"must be below budget.monthlyCostCapUsd ({cap})"
             )
         return self
 

@@ -73,6 +73,36 @@
           "default": null,
           "description": "UTC daily spend threshold across direct model providers. With a cap, requests are serialized and output is capped at 4096 tokens. One response can overshoot; unknown pricing pauses requests. ACP subscription clients are refused. Null disables the dollar limit.",
           "title": "Dailycostcapusd"
+        },
+        "monthlyCostCapUsd": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UTC calendar-month spend ceiling. Paid requests reserve their configured worst-case cost before admission; free models remain available.",
+          "title": "Monthlycostcapusd"
+        },
+        "requestCostReserveUsd": {
+          "default": 0.15,
+          "description": "Worst-case cost of one paid request, held against the monthly cap while it is in flight. An unpriced response is booked at this amount. Must be at least the real worst case for the pinned model (its price ceilings times its context window).",
+          "exclusiveMinimum": 0,
+          "title": "Requestcostreserveusd",
+          "type": "number"
+        },
+        "allowedPaidModels": {
+          "default": [],
+          "description": "Paid model keys (e.g. openrouter:vendor/model) permitted while a monthly cap is set. Anything else paid is refused, because only these have price ceilings pinned. Free models are always allowed.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowedpaidmodels",
+          "type": "array"
         }
       },
       "title": "Budget",

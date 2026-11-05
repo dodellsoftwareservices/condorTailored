@@ -205,6 +205,37 @@ async def healthcheck_local_backend(
 _NULL_SAFE_MODEL_CLS: Any = None
 
 
+def _make_openrouter_model(model_id: str, provider: Any, gate=None) -> Any:
+    """Build an OpenRouter model that keeps OpenRouter's billed usage on every reply.
+
+    pydantic-ai's OpenRouter model surfaces the billed ``cost`` in
+    ``provider_details``, which is the only way to price a model its bundled
+    catalog does not know. ``gate``, when given, is awaited before every request
+    (the budget's admission check), exactly as for the OpenAI-compatible model.
+    """
+    from pydantic_ai.models.openrouter import OpenRouterModel
+
+    class GovernedOpenRouterModel(OpenRouterModel):
+        # Set below, per instance; ``None`` = no admission check.
+        _condor_gate: Callable[[], Awaitable[None]] | None = None
+
+        async def request(self, *args, **kwargs):
+            if self._condor_gate is not None:
+                await self._condor_gate()
+            return await super().request(*args, **kwargs)
+
+        @contextlib.asynccontextmanager
+        async def request_stream(self, *args, **kwargs):
+            if self._condor_gate is not None:
+                await self._condor_gate()
+            async with super().request_stream(*args, **kwargs) as response:
+                yield response
+
+    model = GovernedOpenRouterModel(model_id, provider=provider)
+    model._condor_gate = gate
+    return model
+
+
 def _make_openai_compat_model(
     model_id: str,
     provider: Any,
@@ -649,8 +680,10 @@ class PydanticAIClient:
                 timeout=_local_timeout,
                 http_client=http_client,
             )
-            return _make_openai_compat_model(
-                model_id, OpenAIProvider(openai_client=openai_client), gate=gate
+            from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+            return _make_openrouter_model(
+                model_id, OpenRouterProvider(openai_client=openai_client), gate=gate
             )
 
         # Custom OpenAI-compatible provider (Venice AI, Together, any vLLM/TGI...):
@@ -916,7 +949,7 @@ class PydanticAIClient:
         if cfg.max_output_tokens is not None:
             settings["max_tokens"] = cfg.max_output_tokens
         if model_prefix(self.model_name) == "openrouter":
-            body: dict[str, Any] = {}
+            body: dict[str, Any] = {"usage": {"include": True}}
             reasoning = cfg.thinking.openrouter_reasoning()
             if reasoning:
                 body["reasoning"] = reasoning
@@ -924,6 +957,22 @@ class PydanticAIClient:
             allowed = cfg.openrouter_provider_only.get(model_id)
             if allowed:
                 body["provider"] = {"only": list(allowed)}
+            from condor.llm.budget import is_free_model
+
+            if is_free_model(model_id):
+                body["provider"] = {
+                    **body.get("provider", {}),
+                    "max_price": {"prompt": 0, "completion": 0},
+                }
+            elif cfg.budget.monthly_cost_cap_usd is not None:
+                # The admitted paid model is pinned to Wafer MXFP4. These
+                # price ceilings plus its 1,048,576-token context bound keep
+                # the worst request under the configured $0.15 reservation.
+                body["provider"] = {
+                    **body.get("provider", {}),
+                    "max_price": {"prompt": 0.13, "completion": 0.50},
+                    "allow_fallbacks": False,
+                }
             if body:
                 settings["extra_body"] = body
         return settings or None
@@ -1445,7 +1494,9 @@ class PydanticAIClient:
             priced = True
             for response in responses:
                 try:
-                    cost += float(response.cost().total_price)
+                    from condor.llm.cost_model import response_cost_usd
+
+                    cost += response_cost_usd(response, self.model_name)
                 except Exception:  # noqa: BLE001 - LookupError, the model_name assert
                     priced = False
                     continue

@@ -149,6 +149,11 @@ def test_a_run_limit_is_never_below_one_request(tmp_path, monkeypatch):
 
 # ── thinking and model settings ──
 
+FREE_BILLING_BODY = {
+    "usage": {"include": True},
+    "provider": {"max_price": {"prompt": 0, "completion": 0}},
+}
+
 
 def test_thinking_is_openrouters_reasoning_request(tmp_path, monkeypatch):
     _config(
@@ -159,7 +164,10 @@ def test_thinking_is_openrouters_reasoning_request(tmp_path, monkeypatch):
 
     assert PydanticAIClient(OR_FREE)._model_settings() == {
         "max_tokens": 8192,
-        "extra_body": {"reasoning": {"effort": "high"}},
+        "extra_body": {
+            "reasoning": {"effort": "high"},
+            **FREE_BILLING_BODY,
+        },
     }
 
 
@@ -172,8 +180,13 @@ def test_thinking_is_not_sent_to_providers_that_spell_it_differently(
     assert PydanticAIClient("openai:gpt-4o")._model_settings() is None
 
 
-def test_no_config_means_no_model_settings_at_all():
-    assert PydanticAIClient(OR_FREE)._model_settings() is None
+def test_openrouter_always_reports_billed_usage_and_free_models_are_priced_at_zero():
+    """Even with no config: the billed cost is what prices a model the bundled
+    catalog does not know, and a ``:free`` model must never route to a paid endpoint."""
+    assert PydanticAIClient(OR_FREE)._model_settings() == {
+        "extra_body": FREE_BILLING_BODY
+    }
+    assert PydanticAIClient("ollama:llama3.1")._model_settings() is None
 
 
 def test_a_reasoning_budget_in_tokens_is_the_alternative_to_an_effort(
@@ -182,7 +195,10 @@ def test_a_reasoning_budget_in_tokens_is_the_alternative_to_an_effort(
     _config(tmp_path, monkeypatch, {"thinking": {"maxTokens": 4000, "exclude": True}})
 
     assert PydanticAIClient(OR_FREE)._model_settings() == {
-        "extra_body": {"reasoning": {"max_tokens": 4000, "exclude": True}}
+        "extra_body": {
+            "reasoning": {"max_tokens": 4000, "exclude": True},
+            **FREE_BILLING_BODY,
+        }
     }
 
 
@@ -227,7 +243,40 @@ def test_openrouter_provider_pin_is_scoped_to_exact_model(tmp_path, monkeypatch)
     asyncio.run(agent.run("hi"))
 
     assert seen[0]["provider"] == {"only": ["wafer/mxfp4"]}
-    assert PydanticAIClient(OR_FREE)._model_settings() is None
+    assert seen[0]["usage"] == {"include": True}
+    # The pin never leaks onto another model.
+    assert (
+        "only"
+        not in PydanticAIClient(OR_FREE)._model_settings()["extra_body"]["provider"]
+    )
+
+
+def test_a_monthly_cap_pins_the_paid_model_to_price_ceilings_without_fallbacks(
+    tmp_path, monkeypatch
+):
+    """The $0.15 reserve is only a true worst case because the request cannot be
+    routed to a dearer endpoint."""
+    target = "openrouter:deepseek/deepseek-v4.1-flash-1017"
+    _config(
+        tmp_path,
+        monkeypatch,
+        {
+            "openrouterProviderOnly": {
+                "deepseek/deepseek-v4.1-flash-1017": ["wafer/mxfp4"]
+            },
+            "budget": {"enabled": True, "monthlyCostCapUsd": 30},
+        },
+    )
+    body = PydanticAIClient(target)._model_settings()["extra_body"]
+    assert body["usage"] == {"include": True}
+    assert body["provider"] == {
+        "only": ["wafer/mxfp4"],
+        "max_price": {"prompt": 0.13, "completion": 0.50},
+        "allow_fallbacks": False,
+    }
+    # A free model in the same config keeps its own zero ceiling.
+    free = PydanticAIClient(OR_FREE)._model_settings()["extra_body"]
+    assert free["provider"] == {"max_price": {"prompt": 0, "completion": 0}}
 
 
 # ── the budget gate, through the real model class ──

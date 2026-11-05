@@ -341,14 +341,30 @@ def test_a_cost_cap_is_checked_even_when_applies_to_is_all(tmp_path):
 def test_the_cost_cap_resets_with_the_day(tmp_path):
     clock = Clock(utc(2026, 10, 28, 23, 59, 0))
     gov, ledger = make(
+        tmp_path,
+        clock,
+        applies_to="all",
+        requests_per_minute=1000,
+        daily_cost_cap_usd=1.0,
+    )
+    ledger.record_cost("x", 2.0)
+    paid = "anthropic/claude-sonnet-4-5"
+    with pytest.raises(b.BudgetExhausted):
+        run(gov.acquire("x", paid))
+
+    clock.now = utc(2026, 10, 29, 0, 0, 1)
+    run(gov.acquire("x", paid))  # no raise — new day, cost reset to 0
+
+
+def test_a_spent_dollar_cap_never_blocks_a_free_model(tmp_path):
+    """Dollars cap paid spend. A ``:free`` model costs nothing, so it keeps running
+    (still bound by its request caps) after the paid budget is gone."""
+    clock = Clock(utc(2026, 10, 28, 12, 0, 0))
+    gov, ledger = make(
         tmp_path, clock, requests_per_minute=1000, daily_cost_cap_usd=1.0
     )
     ledger.record_cost("x", 2.0)
-    with pytest.raises(b.BudgetExhausted):
-        run(gov.acquire("x", "m:free"))
-
-    clock.now = utc(2026, 10, 29, 0, 0, 1)
-    run(gov.acquire("x", "m:free"))  # no raise — new day, cost reset to 0
+    run(gov.acquire("x", "m:free"))  # no raise
 
 
 def test_the_budget_comes_back_after_the_reset(tmp_path):
