@@ -71,7 +71,7 @@
             }
           ],
           "default": null,
-          "description": "UTC daily spend threshold across direct model providers. With a cap, requests are serialized and output is capped at 4096 tokens. One response can overshoot; unknown pricing pauses requests. ACP subscription clients are refused. Null disables the dollar limit.",
+          "description": "UTC daily spend threshold across direct model providers. With a cap, requests are serialized and output is capped at 16,384 tokens. One response can overshoot; unknown pricing pauses requests. ACP subscription clients are refused. Null disables the dollar limit.",
           "title": "Dailycostcapusd"
         },
         "monthlyCostCapUsd": {

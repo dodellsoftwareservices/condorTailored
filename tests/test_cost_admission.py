@@ -11,7 +11,12 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.models.function import FunctionModel
 
 from condor.agent_config import Budget
-from condor.llm.budget import BudgetExhausted, RequestGovernor, RequestLedger
+from condor.llm.budget import (
+    PAID_MAX_OUTPUT_TOKENS,
+    BudgetExhausted,
+    RequestGovernor,
+    RequestLedger,
+)
 from condor.llm.cost_model import CostTrackingModel
 
 
@@ -46,7 +51,7 @@ def test_one_tool_run_stops_before_its_next_request_after_crossing_cap(tmp_path)
     with pytest.raises(BudgetExhausted):
         agent.run_sync("work")
     assert len(calls) == 2
-    assert calls[0]["max_tokens"] == 4096
+    assert calls[0]["max_tokens"] == PAID_MAX_OUTPUT_TOKENS
     assert gov.ledger.cost_today() == 0.60
 
 

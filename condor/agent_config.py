@@ -171,14 +171,14 @@ class Budget(_Model):
     # *request count*, which is moot on a free model and does nothing once
     # this is pointed at a paid one (system review 2026-10-31, finding #21).
     # Checked before each provider request. With a dollar cap, requests are
-    # serialized across processes and output is limited to 4096 tokens; actual
+    # serialized across processes and output is limited to PAID_MAX_OUTPUT_TOKENS (16,384); actual
     # prices are recorded after each response. One response may overshoot the
     # threshold. Unknown pricing pauses admission until reset. ACP subscription
     # clients cannot be metered and are refused while a dollar cap is enabled.
     daily_cost_cap_usd: float | None = Field(
         default=None,
         gt=0,
-        description="UTC daily spend threshold across direct model providers. With a cap, requests are serialized and output is capped at 4096 tokens. One response can overshoot; unknown pricing pauses requests. ACP subscription clients are refused. Null disables the dollar limit.",
+        description="UTC daily spend threshold across direct model providers. With a cap, requests are serialized and output is capped at 16,384 tokens. One response can overshoot; unknown pricing pauses requests. ACP subscription clients are refused. Null disables the dollar limit.",
     )
     monthly_cost_cap_usd: float | None = Field(
         default=None,

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from condor.agent_config import Budget
 from condor.llm.budget import (
+    PAID_MAX_OUTPUT_TOKENS,
     RESERVATION_TTL_SEC,
     BudgetExhausted,
     RequestGovernor,
@@ -96,7 +97,7 @@ def test_the_reserve_must_cover_the_worst_request_the_ceiling_allows():
     """The regression behind this check: a $0.15 reserve and a $0.13 ceiling were
     both wrong at the endpoint's real $0.16/M, and nothing tied the two together."""
     ceiling = {"prompt": 0.17, "completion": 0.55}
-    worst = (1_048_576 * 0.17 + 4096 * 0.55) / 1_000_000  # ~0.1805
+    worst = (1_048_576 * 0.17 + PAID_MAX_OUTPUT_TOKENS * 0.55) / 1_000_000  # ~0.187
     with pytest.raises(ValidationError, match=r"below the worst case of one paid"):
         Budget(
             monthly_cost_cap_usd=30,

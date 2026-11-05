@@ -56,8 +56,12 @@ log = logging.getLogger(__name__)
 RESERVATION_TTL_SEC = 1800
 
 # With a dollar cap, output is limited to this many tokens (see CostTrackingModel). It is
-# part of the worst-case cost of one request, so the config validator uses it too.
-PAID_MAX_OUTPUT_TOKENS = 4096
+# part of the worst-case cost of one request, so the config validator uses it too. It has
+# to leave room to THINK: a reasoning model's thinking tokens count toward it, and at 4,096
+# DeepSeek ran out before writing any answer ("Model token limit exceeded before any
+# response was generated"), losing the desks' ticks. At $0.55/M output, 16,384 tokens add
+# under a cent to the worst case.
+PAID_MAX_OUTPUT_TOKENS = 16384
 
 
 def unmetered_backend_error() -> str | None:

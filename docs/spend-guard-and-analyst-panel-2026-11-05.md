@@ -27,8 +27,8 @@ How it works (`condor/llm/budget.py`, `condor/llm/cost_model.py`):
   response was logged `cost_unknown` and nothing could be capped.
 - **The reserve is a proven bound, not a guess.** The paid model is pinned to
   `wafer/mxfp4` with no fallback routing and a price ceiling from the config. The config
-  validator computes the worst request that allows (context x input ceiling + 4,096 capped
-  output tokens x output ceiling, about $0.1805) and refuses to load if
+  validator computes the worst request that allows (context x input ceiling + 16,384 capped
+  output tokens x output ceiling, about $0.187) and refuses to load if
   `requestCostReserveUsd` is lower, or if a monthly cap has no ceiling at all.
 - **Keep the ceiling just above the endpoint's real price.** `wafer/mxfp4` was verified at
   $0.16/M input and $0.50/M output on 2026-11-05. A ceiling below the real price does not
@@ -119,7 +119,7 @@ one yet, and a few days of simulated trading proves nothing about future profit.
 ## Operating notes
 
 - **Restarting.** Code changes need a restart (only `handlers/` and `routines/` hot-reload).
-  Restart just the `condor` tmux session. Both desks and the market maker then resume by
+  Use `make restart` (it stops only the `condor` tmux session). Both desks and the market maker then resume by
   themselves. Boot reconciliation used to restart loops before the web server existed, so every
   resumed loop failed its first tick (the simulator tools are HTTP clients of that server); it
   now waits for the dashboard port. Do not also start the loops by hand: the manual start adds
