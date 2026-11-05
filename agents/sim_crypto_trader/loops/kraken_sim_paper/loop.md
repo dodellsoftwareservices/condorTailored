@@ -1,19 +1,19 @@
 ---
 name: Kraken Sim Paper
-description: Every 15 minutes, review the simulated Kraken account and watched
-  pairs, and act only when an edge clearly beats round-trip costs.
-agent_key: openrouter:nvidia/nemotron-3-ultra-550b-a55b:free
+description: Hourly review of multi-day spot holds using daily and 4-hour signals,
+  with explicit entry, exit, cost and sizing checks.
+agent_key: openrouter:deepseek/deepseek-v4.1-flash-1017
 skills: []
 default_config:
-  agent_key: openrouter:nvidia/nemotron-3-ultra-550b-a55b:free
+  agent_key: openrouter:deepseek/deepseek-v4.1-flash-1017
   connector_name: kraken_sim
   trading_pair: BTC-USD
-  frequency_sec: 900
-  total_amount_quote: 10000
+  frequency_sec: 3600
+  total_amount_quote: 2500
   leverage: null
   execution_mode: loop
   risk_limits:
-    max_position_size_quote: 5000
+    max_position_size_quote: 2500
     max_open_executors: 1
 default_trading_context: ''
 created_by: 0
@@ -33,7 +33,10 @@ account only, through the `sim_*` tools. There is no real account, key or bot.
 - In a run-once or dry-run experiment there is no journal: put the entry you would have
   written at the end of your response instead of calling the journal tools.
 - Watched pairs: `BTC-USD`, `ETH-USD`, `SOL-USD` (USD-quoted spot only).
-- Run at the shipped `frequency_sec: 900`. Edge trades are rare, so most ticks hold.
+- Run at `frequency_sec: 3600` with a 3–30 day holding horizon. Read at least
+  60 completed daily and 48 completed 4-hour candles per pair before a new entry.
+  Do not use a 15-minute range or 24h VWAP as the target ceiling for this desk.
+  First entries are capped at $500; total exposure remains under owner limits.
   Never trade to calibrate execution or generate fills. Every new position must
   clear the brain's cost-aware edge test and have a written exit plan.
 - The simulated account, its starting balance and every limit are owned by the user. If an
@@ -41,3 +44,5 @@ account only, through the `sim_*` tools. There is no real account, key or bot.
 - Record a baseline in the journal on your first tick: the BTC-USD mid price, so the
   buy-and-hold comparison in KR1 can be computed later.
 - Each tick ends with one journal entry, whether or not you traded.
+- The journal must name the missing trigger and a target/stop/cost calculation
+  for each screened pair. A generic repeated HOLD is not a completed screen.

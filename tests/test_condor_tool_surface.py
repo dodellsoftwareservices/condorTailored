@@ -49,6 +49,7 @@ EXPECTED_TOOLS = {
     "sim_fut_list_orders",
     "sim_fut_portfolio",
     "sim_fut_cost_report",
+    "sim_consult_analysts",
 }
 
 

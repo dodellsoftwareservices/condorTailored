@@ -707,6 +707,37 @@ async def sim_fut_cost_report() -> dict:
     return await sim_exchange_tool.fut_cost_report()
 
 
+@handle_errors("sim consult analysts")
+@telemetry_taps.tracked("sim_consult_analysts")
+async def sim_consult_analysts(
+    desk: Literal["spot", "futures"],
+    symbols: list[str],
+    question: str = "",
+) -> dict:
+    """Ask two or three FREE advisory analysts (Nemotron) to read daily and 4-hour statistics.
+
+    Use it when screening for a NEW entry, once per review at most. The analysts see
+    only precomputed statistics (trend, volatility, range, costs, funding), never your
+    account; they cannot trade and have no tools. Their briefs are opinion from free
+    models: verify against your own snapshot and never cite an analyst as the only
+    reason for a trade. You alone decide. A repeat call within thirty minutes returns
+    the previous briefs (``cached: true``).
+
+    Args:
+        desk: "spot" (the Kraken spot account) or "futures" (the perpetuals account).
+        symbols: One to three symbols, e.g. ["BTC-USD", "ETH-USD"].
+        question: Optional, up to 300 characters, for example "is a pullback entry
+                  still valid?".
+
+    Returns:
+        {"advisory": true, "analysts": [{"lens", "role", "model", "status", "brief"}]},
+        or {"error": "..."}.
+    """
+    return await sim_exchange_tool.consult_analysts(
+        {"desk": desk, "symbols": symbols, "question": question}
+    )
+
+
 @handle_errors("send notification")
 @telemetry_taps.tracked("send_notification")
 async def send_notification(

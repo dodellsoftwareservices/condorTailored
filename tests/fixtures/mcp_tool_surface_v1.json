@@ -1,6 +1,6 @@
 {
   "_provenance": {
-    "commit": "2da84ea5200dcd953c238726edb978c14caf0505",
+    "commit": "ce86edb2dfdddddd0f8636c2253f0868099e0665",
     "mcp": "2.2.0",
     "pydantic-ai": "2.52.0"
   },
@@ -1143,6 +1143,41 @@
         "type": "object"
       },
       "name": "sim_cancel_order",
+      "outputSchema": null
+    },
+    "sim_consult_analysts": {
+      "description": "Ask two or three FREE advisory analysts (Nemotron) to read daily and 4-hour statistics.\n\n    Use it when screening for a NEW entry, once per review at most. The analysts see\n    only precomputed statistics (trend, volatility, range, costs, funding), never your\n    account; they cannot trade and have no tools. Their briefs are opinion from free\n    models: verify against your own snapshot and never cite an analyst as the only\n    reason for a trade. You alone decide. A repeat call within thirty minutes returns\n    the previous briefs (``cached: true``).\n\n    Args:\n        desk: \"spot\" (the Kraken spot account) or \"futures\" (the perpetuals account).\n        symbols: One to three symbols, e.g. [\"BTC-USD\", \"ETH-USD\"].\n        question: Optional, up to 300 characters, for example \"is a pullback entry\n                  still valid?\".\n\n    Returns:\n        {\"advisory\": true, \"analysts\": [{\"lens\", \"role\", \"model\", \"status\", \"brief\"}]},\n        or {\"error\": \"...\"}.\n    ",
+      "inputSchema": {
+        "properties": {
+          "desk": {
+            "enum": [
+              "spot",
+              "futures"
+            ],
+            "title": "Desk",
+            "type": "string"
+          },
+          "question": {
+            "default": "",
+            "title": "Question",
+            "type": "string"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols",
+            "type": "array"
+          }
+        },
+        "required": [
+          "desk",
+          "symbols"
+        ],
+        "title": "sim_consult_analystsArguments",
+        "type": "object"
+      },
+      "name": "sim_consult_analysts",
       "outputSchema": null
     },
     "sim_cost_report": {

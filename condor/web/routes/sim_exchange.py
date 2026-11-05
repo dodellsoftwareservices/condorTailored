@@ -14,9 +14,15 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from condor.paths import data_dir
+from condor.sim_exchange.analysts import (
+    MAX_QUESTION_CHARS,
+    MAX_SYMBOLS,
+    AnalystPanel,
+    build_facts,
+)
 from condor.sim_exchange.engine import Rejected
 from condor.sim_exchange.futures import CANDLE_MINUTES as FUT_CANDLE_MINUTES
 from condor.sim_exchange.futures import FuturesService, KrakenFuturesClient
@@ -417,3 +423,49 @@ async def fut_put_config(
 async def fut_reset(body: ResetRequest, user: WebUser = Depends(get_current_user)):
     require_admin(user)
     return await _guard(get_fut_service().reset(_dec(body.start_cash, "start_cash")))
+
+
+# ── advisory analysts (free-model subagents the desk's reasoning model may consult) ──
+
+_analyst_panel: AnalystPanel | None = None
+
+
+def get_analyst_panel() -> AnalystPanel:
+    global _analyst_panel
+    if _analyst_panel is None:
+        _analyst_panel = AnalystPanel()
+    return _analyst_panel
+
+
+class AnalystRequest(BaseModel):
+    desk: Literal["spot", "futures"]
+    symbols: list[str] = Field(min_length=1, max_length=MAX_SYMBOLS)
+    question: str = Field("", max_length=MAX_QUESTION_CHARS)
+    lenses: list[Literal["trend", "cost_risk", "counter"]] | None = None
+
+
+@router.post("/analysts")
+async def consult_analysts(
+    body: AnalystRequest, user: WebUser = Depends(get_current_user)
+):
+    """Two or three free Nemotron analysts read compact market statistics for the desk.
+
+    The desk's own (paid) model stays the only decision-maker: the analysts get no
+    tools, cannot trade, and their output is labelled advisory. Daily and 4-hour
+    candles are fetched here, so the caller cannot smuggle text in as "market data".
+    """
+    require_admin(user)
+    service = get_sim_service() if body.desk == "spot" else get_fut_service()
+    facts = []
+    for symbol in body.symbols:
+        daily = await _guard(service.snapshot(symbol, 60, 1440))
+        h4 = await _guard(service.snapshot(symbol, 60, 240))
+        facts.append(build_facts(body.desk, symbol, daily, daily, h4))
+    try:
+        return await get_analyst_panel().consult(
+            body.desk, facts, body.question, body.lenses
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            400, {"code": "analyst_bad_request", "message": str(exc)}
+        ) from None

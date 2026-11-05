@@ -1,0 +1,78 @@
+# Spend guard and advisory analyst panel — November 5, 2026
+
+Two pieces that work together: a hard monthly dollar ceiling on paid model spend, and a
+small orchestration layer in which one paid reasoning model (DeepSeek v4.1 Flash 1017)
+consults two or three free Nvidia Nemotron analysts.
+
+## The $30 monthly guard
+
+`agent-config.json` → `budget`:
+
+| Key | Value | Meaning |
+| --- | --- | --- |
+| `monthlyCostCapUsd` | 30 | UTC calendar-month ceiling on paid spend |
+| `requestCostReserveUsd` | 0.15 | Worst case of one paid request, held while it is in flight |
+| `allowedPaidModels` | `openrouter:deepseek/deepseek-v4.1-flash-1017` | The only paid model permitted |
+
+How it works (`condor/llm/budget.py`, `condor/llm/cost_model.py`):
+
+- Before a paid request, the governor adds the month's recorded spend, the reservations
+  held by requests in flight, and this request's reserve. At or over the cap, the request
+  is refused until the first of the next month.
+- **Real prices, not a catalogue.** Every OpenRouter request asks for billed usage
+  (`usage.include`), and the billed `cost` is what gets recorded. The bundled price
+  catalogue does not know `deepseek-v4.1-flash-1017`, so before this change every paid
+  response was logged `cost_unknown` and nothing could be capped.
+- **The reserve is a true bound, not a guess.** The paid model is pinned to
+  `wafer/mxfp4` with price ceilings of $0.13/M input and $0.50/M output and no fallback
+  routing. With its 1,048,576-token context, one request cannot exceed about $0.14.
+- **Unpriced responses are booked at the reserve** rather than pausing every paid request
+  for the month (a timeout would otherwise have locked paid work until the 1st).
+- **Orphaned reservations expire** after 30 minutes, so a crash cannot slowly eat the cap.
+- **Free models are exempt** and cannot be routed to a paid endpoint (`max_price: 0`).
+- **The baseline.** `data/llm_budget/spend-baseline.json` books spend that happened before
+  metering. It is read from OpenRouter's `GET /api/v1/key` (`usage_monthly`, `usage_daily`)
+  and is local, not committed. Refresh it by re-reading that endpoint.
+- OpenRouter also enforces its own hard limit on the key ($50/month at the time of
+  writing), so the $30 guard sits inside a provider-side backstop.
+- A subscription (ACP) client cannot be metered, so it is refused while a dollar cap is on.
+
+Measured on 2026-11-05: about $0.001 per DeepSeek request, $4.96 spent in the month before
+the guard went live. At the current request rate the cap is reached near month-end.
+
+## The analyst panel
+
+```
+desk agent (DeepSeek, paid)  ── sim_consult_analysts ──►  Condor
+   the only decision-maker                                 fetches daily + 4h candles
+   places every order                                      computes the statistics in code
+                                                           ├─ trend analyst        (Nemotron, free)
+                                                           ├─ cost/risk auditor    (Nemotron, free)
+                                                           └─ counter-case analyst (Nemotron, free)
+```
+
+- **No tools, no account access.** Analysts receive a JSON brief of precomputed statistics
+  (trend, volatility, range, round-trip cost, funding) and return a short opinion. They
+  cannot trade, cancel, journal or call anything, and never see balances or positions.
+- **Why a dedicated tool and not `delegate`.** The simulator seats are sealed: a test forbids
+  them from holding `delegate`, because delegated agents run with auto-approved tools. This
+  tool gives the desk advice without handing it a way to reach anything real.
+- **Free only, enforced.** The panel refuses to be built with a model that is not an
+  OpenRouter `:free` model, so a consult cannot spend the paid budget.
+- **Bounded.** At most three analysts and three symbols, 40 seconds per attempt, replies
+  clipped to 1,200 characters, and one fresh consult per desk per 30 minutes (a repeat call
+  returns the cached briefs). Worst case is about 430 free requests a day.
+- **Degrades quietly.** If an analyst model is slow or down it falls through to the second
+  free model, then reports `unavailable` and the desk decides without that lens.
+- **Advisory.** The tool result and both desk playbooks say so; a brief may never be the
+  only reason for a trade, and the journal records which brief changed the decision.
+
+Live check, 2026-11-05: the smaller `nemotron-3.5-super-vl` answered and cited the supplied
+statistics correctly. The 550B `nemotron-3-ultra` timed out on every lens at 60 seconds, so it
+is now the fallback. Two of three lenses answered in 81 seconds; the third timed out on both
+models. Consults are slow because the free endpoints are; the 30-minute window hides it.
+
+## What this does not establish
+
+The analysts add a second and third opinion; they do not add an edge. Neither desk has shown
+one yet, and a few days of simulated trading proves nothing about future profit.

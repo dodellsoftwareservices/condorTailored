@@ -68,6 +68,7 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "sim_fut_list_orders": "List simulated futures open and recent orders",
     "sim_fut_portfolio": "Simulated futures equity, positions, leverage and funding",
     "sim_fut_cost_report": "Simulated futures fees, slippage, funding and running costs",
+    "sim_consult_analysts": "Consult 2-3 free advisory analysts over market statistics (no trading)",
 }
 
 #: Everything a session needs whoever is sitting in it: its own memory and
@@ -99,6 +100,7 @@ COMMON_TOOLS: tuple[str, ...] = (
     "sim_fut_list_orders",
     "sim_fut_portfolio",
     "sim_fut_cost_report",
+    "sim_consult_analysts",
 )
 
 #: Orchestration: who exists, what loops they own, and which instances are

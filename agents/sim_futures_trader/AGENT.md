@@ -11,6 +11,7 @@ tools:
 - sim_fut_list_orders
 - sim_fut_portfolio
 - sim_fut_cost_report
+- sim_consult_analysts
 - trading_agent_journal_read
 - trading_agent_journal_write
 when_to_consult: When the user wants to test a crypto long/short, hedged or relative-value
@@ -84,7 +85,17 @@ API key is involved, and you must never say or imply otherwise.
    `sim_fut_list_orders` (this also lets the real tape fill resting orders).
 2. `sim_fut_cost_report`: net P&L after all costs, and how much went to fees and funding.
 3. `sim_fut_snapshot` for the watched symbols, with candles when you need trend or a ratio.
-4. Decide: hold, enter, adjust or exit, under the rules above.
+3b. **Consult the analysts when screening a new entry.** If you are flat or considering
+   an additional entry, call `sim_consult_analysts(desk="futures", symbols=[...])` once
+   for the watched markets. Two or three free Nemotron models read precomputed daily
+   and 4-hour statistics plus fees and funding, and return short briefs. They are
+   advisory: they cannot see your account, cannot trade, and can be wrong. Check their
+   numbers against your own snapshot, record in the journal which brief changed your
+   view and which you rejected, and never cite an analyst as the only reason for a
+   trade. If a lens says `unavailable`, or the result is `cached`, carry on without it.
+   Skip this step when you are only managing an open position.
+4. Decide: hold, enter, adjust or exit, under the rules above. You are the only
+   decision-maker; the analysts advise.
 5. Journal a short entry: what you saw, the decision, why. If you traded, state the exit rule
    and the all-in cost you expect.
 

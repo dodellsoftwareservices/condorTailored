@@ -68,3 +68,11 @@ async def fut_portfolio() -> dict:
 
 async def fut_cost_report() -> dict:
     return await call_main_api("GET", f"{_FUT}/costs", timeout=60)
+
+
+# ── Advisory analysts (shared by both desks) ────────────────────────────
+
+
+async def consult_analysts(body: dict) -> dict:
+    # Two or three free models answer in parallel, so allow longer than a data call.
+    return await call_main_api("POST", f"{_BASE}/analysts", body, timeout=150)
