@@ -78,7 +78,7 @@ def test_the_shipped_file_is_valid_and_says_what_the_owner_asked_for(monkeypatch
     assert loaded.unrecognized == ()
     assert cfg.max_steps == 1000
     assert cfg.thinking.effort == "high"
-    assert cfg.budget.enabled and cfg.budget.daily_request_cap == 1000
+    assert cfg.budget.enabled and cfg.budget.daily_request_cap == 2500
     assert cfg.model.startswith("openrouter:")
 
 

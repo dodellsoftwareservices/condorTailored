@@ -45,9 +45,21 @@ How it works (`condor/llm/budget.py`, `condor/llm/cost_model.py`):
   for the month (a timeout would otherwise have locked paid work until the 1st).
 - **Orphaned reservations expire** after 30 minutes, so a crash cannot slowly eat the cap.
 - **Free models are exempt** and cannot be routed to a paid endpoint (`max_price: 0`).
-- **The baseline.** `data/llm_budget/spend-baseline.json` books spend that happened before
-  metering. It is read from OpenRouter's `GET /api/v1/key` (`usage_monthly`, `usage_daily`)
-  and is local, not committed. Refresh it by re-reading that endpoint.
+- **The baseline is refreshed from the provider, automatically.** `data/llm_budget/spend-baseline.json`
+  books spend the local ledger did not see: spend from before metering, and spend by anything
+  else holding the same key. `condor/llm/provider_usage.py` reads OpenRouter's
+  `GET /api/v1/key` (`usage_monthly`, `usage_daily`) every ten minutes and rewrites the
+  baseline from it. It never loosens: a failed read keeps the baseline, a figure below the one
+  already held for the month (reporting lag) is ignored, and the new baseline overlaps the
+  reading by three minutes so a request that just finished is counted twice rather than not at
+  all. The file is local, not committed.
+- **Watching it.** `GET /api/v1/llm/spend` (admin) returns the cap, what counts, what is held
+  in flight and the headroom; the dashboard shows it as one line that turns to the attention
+  colour under a fifth of the cap and says so plainly when paid requests are paused.
+- **The request caps are sized for the load.** `dailyRequestCap` is 2,500, not the 1,000 a
+  single free-model desk needed: the two desks plus the analysts come to roughly 1,200-1,700
+  requests a day, and `appliesTo: all` counts paid requests too. Paid ones are bounded in
+  dollars; free ones cannot reach OpenRouter's own 1,000-a-day free limit on their own.
 - OpenRouter can also enforce its own limit on the key (`limit`, `limit_remaining` in the
   same `/key` reading), which sits outside the $30 guard as a provider-side backstop.
 - A subscription (ACP) client cannot be metered, so it is refused while a dollar cap is on.
@@ -100,3 +112,19 @@ Live check, 2026-11-05, and what it taught:
 
 The analysts add a second and third opinion; they do not add an edge. Neither desk has shown
 one yet, and a few days of simulated trading proves nothing about future profit.
+
+## Operating notes
+
+- **Restarting.** Code changes need a restart (only `handlers/` and `routines/` hot-reload).
+  Restart just the `condor` tmux session. Both desks and the market maker then resume by
+  themselves. Boot reconciliation used to restart loops before the web server existed, so every
+  resumed loop failed its first tick (the simulator tools are HTTP clients of that server); it
+  now waits for the dashboard port. Do not also start the loops by hand: the manual start adds
+  a second instance rather than replacing the first.
+- **A paid request failing with 404** almost always means the price ceiling is below the
+  endpoint's current price. Check the endpoints URL above and raise
+  `paidPriceCeilingUsdPerMillion` (and `requestCostReserveUsd` with it; the config validator
+  will tell you if the reserve no longer covers the worst case).
+- **Subscription (ACP) agents are refused while the cap is on**, because their spend cannot be
+  metered. The agents that use `claude-acp:*` / `claude-code:*` keys will not start until the
+  monthly cap is removed.

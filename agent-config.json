@@ -22,7 +22,8 @@
   "budget": {
     "enabled": true,
     "appliesTo": "all",
-    "dailyRequestCap": 1000,
+    "_dailyRequestCap": "Sized for the load, not the free tier: the spot desk (hourly), the futures desk (every 15 min) and the free analyst consults come to roughly 1,200-1,700 requests a day. Paid requests are bounded in dollars by monthlyCostCapUsd; free ones cannot reach OpenRouter's own 1,000-a-day free-model limit (analysts are about 430 at most). A cap of 1,000 would have refused the desks late in each UTC day.",
+    "dailyRequestCap": 2500,
     "reserveRequests": 50,
     "requestsPerMinute": 18,
     "perRunRequestCap": 100,
