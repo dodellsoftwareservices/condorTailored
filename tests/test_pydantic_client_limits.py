@@ -452,3 +452,56 @@ def test_a_per_client_reasoning_effort_overrides_the_file_for_that_client_only(
 def test_a_reasoning_override_applies_even_with_no_thinking_in_the_file():
     body = PydanticAIClient(OR_FREE, reasoning_effort="low")._model_settings()
     assert body["extra_body"]["reasoning"] == {"effort": "low"}
+
+
+# ── which backends serialize turns ──
+
+
+def test_hosted_openrouter_is_not_serialized_but_local_servers_are():
+    from condor.acp.pydantic_ai_client import serializes_requests
+
+    assert serializes_requests(OR_FREE) is False
+    assert serializes_requests("openrouter:deepseek/deepseek-v4.1-flash-1017") is False
+    for local in (
+        "ollama:llama3.1",
+        "lmstudio:qwen",
+        "custom@home:model",
+        "openai:gpt-4o",
+    ):
+        assert serializes_requests(local) is True, local
+
+
+def test_an_openrouter_client_holds_no_process_wide_request_slot(monkeypatch):
+    """Regression: every OpenRouter turn queued behind one semaphore, so a desk's tick
+    (which holds it while waiting on the consult tool) deadlocked the analysts it called.
+    """
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+
+    async def scenario():
+        desk = PydanticAIClient("openrouter:deepseek/deepseek-v4.1-flash-1017")
+        analyst = PydanticAIClient(OR_FREE, reasoning_effort="none")
+        await desk.start()
+        await analyst.start()
+        try:
+            return desk._request_semaphore, analyst._request_semaphore
+        finally:
+            await desk.stop()
+            await analyst.stop()
+
+    assert asyncio.run(scenario()) == (None, None)
+
+
+def test_a_local_client_still_shares_one_slot_per_server(monkeypatch):
+    async def scenario():
+        a = PydanticAIClient("ollama:llama3.1")
+        b = PydanticAIClient("ollama:llama3.1")
+        await a.start()
+        await b.start()
+        try:
+            return a._request_semaphore, b._request_semaphore
+        finally:
+            await a.stop()
+            await b.stop()
+
+    first, second = asyncio.run(scenario())
+    assert first is not None and first is second

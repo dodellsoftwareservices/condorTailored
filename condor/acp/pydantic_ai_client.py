@@ -122,6 +122,19 @@ def resolve_base_url(model_name: str, base_url: str | None = None) -> str | None
     return DEFAULT_BASE_URLS.get(prefix)
 
 
+def serializes_requests(model_name: str) -> bool:
+    """Whether turns against this model must queue behind each other, process-wide.
+
+    Local inference servers (Ollama, LM Studio, a custom endpoint) answer one request
+    at a time, so concurrent turns race to connect and lose. OpenRouter is hosted and
+    handles concurrency fine, and it has a default base URL only so the client knows
+    where to point. Serializing it let one desk's multi-minute tick hold the slot while
+    waiting on a tool, so anything else that needed OpenRouter in the meantime (the
+    analyst panel the desk itself had just called) queued behind it and timed out.
+    """
+    return model_name.split(":", 1)[0] != "openrouter"
+
+
 async def healthcheck_local_backend(
     model_name: str,
     base_url: str | None = None,
@@ -915,7 +928,7 @@ class PydanticAIClient:
         resolved_base_url = resolve_base_url(self.model_name, self.base_url)
         self._request_semaphore = (
             _get_server_semaphore(resolved_base_url)
-            if resolved_base_url is not None
+            if resolved_base_url is not None and serializes_requests(self.model_name)
             else None
         )
 
