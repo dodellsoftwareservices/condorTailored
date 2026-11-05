@@ -429,3 +429,21 @@ def test_dashboard_reports_equity_and_settled_outcomes_for_the_paper_dashboard(
     assert len(done["outcomes"]) == 1 and done["outcomes"][0]["pnl"] < 0
     assert D(done["equity"]) < D("50000") and D(done["fees"]) > 0
     assert D(done["gross_exposure"]) == 0
+
+
+def test_candles_only_does_not_pull_the_ticker_or_book(tmp_path):
+    class Spy(FakeFut):
+        async def candles(self, sym, minutes, count):
+            self.asked = (sym, minutes, count)
+            return await super().candles(sym, minutes, count)
+
+        async def ticker(self, sym):
+            raise AssertionError("a candles-only call must not fetch the ticker")
+
+        async def orderbook(self, sym):
+            raise AssertionError("a candles-only call must not fetch the book")
+
+    k = Spy()
+    s = F.FuturesService(k, tmp_path / "f.json", start_cash=D("50000"))
+    rows = run(s.candles("BTC-USD", 240, 3))
+    assert len(rows) == 3 and k.asked == ("PF_XBTUSD", 240, 3)

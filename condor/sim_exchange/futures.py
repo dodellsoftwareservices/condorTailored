@@ -1132,6 +1132,10 @@ class FuturesService:
             }
         return out
 
+    async def candles(self, symbol: str, candle_minutes: int, count: int) -> list[dict]:
+        """Just the candles, without the ticker and order book a snapshot also pulls."""
+        return await self.client.candles(to_symbol(symbol), candle_minutes, count)
+
     # orders
 
     async def place(

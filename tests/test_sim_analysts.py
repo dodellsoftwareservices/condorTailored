@@ -335,8 +335,14 @@ def api(monkeypatch):
         return inner
 
     rows = candles(list(range(100, 140)))
-    spot = SimpleNamespace(snapshot=AsyncMock(side_effect=snap(rows)))
-    fut = SimpleNamespace(snapshot=AsyncMock(side_effect=snap(rows)))
+    spot = SimpleNamespace(
+        snapshot=AsyncMock(side_effect=snap(rows)),
+        candles=AsyncMock(return_value=rows),
+    )
+    fut = SimpleNamespace(
+        snapshot=AsyncMock(side_effect=snap(rows)),
+        candles=AsyncMock(return_value=rows),
+    )
     rec = Recorder()
     monkeypatch.setattr(routes, "get_sim_service", lambda: spot)
     monkeypatch.setattr(routes, "get_fut_service", lambda: fut)
@@ -360,8 +366,10 @@ def test_the_route_fetches_daily_and_four_hour_candles_itself(api):
     assert res.status_code == 200
     body = res.json()
     assert body["symbols"] == ["BTC-USD", "ETH-USD"] and len(body["analysts"]) == 3
-    minutes = sorted({call.args[2] for call in api.spot.snapshot.await_args_list})
-    assert minutes == [240, 1440]
+    # One full snapshot per symbol (daily, with the ticker and book); the 4-hour
+    # candles come from a candles-only call, not a second full snapshot.
+    assert [c.args[2] for c in api.spot.snapshot.await_args_list] == [1440, 1440]
+    assert [c.args[1:] for c in api.spot.candles.await_args_list] == [(240, 60)] * 2
     assert not api.fut.snapshot.await_count  # the other desk's service is untouched
     facts = json.loads(api.rec.calls[0]["user"].split("\n")[1])
     assert facts[0]["daily"]["completed_bars"] == 40
@@ -371,7 +379,8 @@ def test_the_futures_desk_reads_the_futures_service(api):
     res = api.post(
         "/sim/kraken/analysts", json={"desk": "futures", "symbols": ["BTC-USD"]}
     )
-    assert res.status_code == 200 and api.fut.snapshot.await_count == 2
+    assert res.status_code == 200
+    assert api.fut.snapshot.await_count == 1 and api.fut.candles.await_count == 1
     assert not api.spot.snapshot.await_count
 
 

@@ -374,3 +374,16 @@ def test_fee_override_can_price_as_a_volume_tier_and_rejects_nonsense(tmp_path):
     ):
         with pytest.raises(E.Rejected, match="fee_override"):
             run(s.set_config(fee_override=bad))
+
+
+def test_candles_only_returns_the_newest_rows_without_the_ticker_or_book(tmp_path):
+    class Spy(FakeKraken):
+        async def ticker(self, alt):
+            raise AssertionError("a candles-only call must not fetch the ticker")
+
+        async def depth(self, alt, count=100):
+            raise AssertionError("a candles-only call must not fetch the book")
+
+    s, _ = svc(tmp_path, Spy())
+    rows = run(s.candles("BTC-USD", 240, 3))
+    assert [r["ts"] for r in rows] == [2, 3, 4]

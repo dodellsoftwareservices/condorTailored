@@ -198,6 +198,12 @@ class SimService:
             out["candles"] = {"minutes": candle_minutes, "rows": rows[-candles:]}
         return out
 
+    async def candles(self, pair: str, candle_minutes: int, count: int) -> list[dict]:
+        """Just the candles, without the ticker and order book a snapshot also pulls."""
+        rules = await self.client.pair_rules(pair)
+        rows = await self.client.ohlc(rules.altname, candle_minutes)
+        return rows[-count:]
+
     # ── orders ──
 
     async def place(

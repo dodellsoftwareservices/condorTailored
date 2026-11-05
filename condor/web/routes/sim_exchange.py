@@ -459,7 +459,8 @@ async def consult_analysts(
     facts = []
     for symbol in body.symbols:
         daily = await _guard(service.snapshot(symbol, 60, 1440))
-        h4 = await _guard(service.snapshot(symbol, 60, 240))
+        rows = await _guard(service.candles(symbol, 240, 60))
+        h4 = {"candles": {"minutes": 240, "rows": rows}}
         facts.append(build_facts(body.desk, symbol, daily, daily, h4))
     try:
         return await get_analyst_panel().consult(
