@@ -690,6 +690,59 @@ def _spawn_background(coro, label: str) -> asyncio.Task:
     return task
 
 
+async def _wait_for_local_web(timeout: float = 180.0, interval: float = 0.5) -> bool:
+    """True once the dashboard's own port accepts connections, False on timeout.
+
+    Loops resumed at boot talk to this process over HTTP, so they must not start
+    their first tick before it can answer.
+    """
+    import time
+
+    from utils.config import WEB_HOST, WEB_PORT
+
+    host = "127.0.0.1" if WEB_HOST in ("", "0.0.0.0", "::") else WEB_HOST
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, WEB_PORT), timeout=2
+            )
+        except (OSError, asyncio.TimeoutError):
+            await asyncio.sleep(interval)
+            continue
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except OSError:
+            pass
+        return True
+    return False
+
+
+async def _reconcile_loops(outbound_bot) -> None:
+    """Settle the previous process's loops, after the web server is accepting calls."""
+    if not await _wait_for_local_web():
+        logger.warning(
+            "Dashboard port did not open within the wait; reconciling loops anyway, "
+            "so resumed loops may fail their first tick"
+        )
+    from condor.runtime.loops import get_supervisor
+
+    try:
+        report = await get_supervisor().reconcile_boot()
+        if report.total or report.orphaned_executors:
+            logger.warning(
+                "Boot reconciliation: %d interrupted, %d restarted, "
+                "%d orphaned executors",
+                report.total,
+                len(report.restarted),
+                len(report.orphaned_executors),
+            )
+            await _notify_interrupted_runs(outbound_bot, report)
+    except Exception:
+        logger.exception("Boot reconciliation failed; continuing startup")
+
+
 async def startup(application: Application) -> None:
     """Bring the process up: commands, caches, supervisors, boot reconciliation.
 
@@ -794,21 +847,12 @@ async def startup(application: Application) -> None:
 
     # Settle whatever the previous process left running: mark orphaned loops
     # interrupted, restart only the ones that opted in, and tell the owner once.
-    from condor.runtime.loops import get_supervisor
-
-    try:
-        report = await get_supervisor().reconcile_boot()
-        if report.total or report.orphaned_executors:
-            logger.warning(
-                "Boot reconciliation: %d interrupted, %d restarted, "
-                "%d orphaned executors",
-                report.total,
-                len(report.restarted),
-                len(report.orphaned_executors),
-            )
-            await _notify_interrupted_runs(outbound_bot, report)
-    except Exception:
-        logger.exception("Boot reconciliation failed; continuing startup")
+    # In the background, once the dashboard's port is open: a resumed loop's first
+    # tick calls back into this very server (the simulator and Condor MCP tools are
+    # HTTP clients of it), and this function returns before uvicorn is even created.
+    # Run inline, every resumed loop failed its first tick ("Tool 'sim_portfolio'
+    # exceeded max retries") and the restart was reported as failed.
+    _spawn_background(_reconcile_loops(outbound_bot), "Boot reconciliation")
 
     # The simulated market maker keeps its own autostart file; it resumes only if it was
     # running (not stopped, not halted) when the last process went down.
