@@ -76,6 +76,13 @@ def _stub_engine(session_dir: Path, *, restart_on_boot=True, mode="loop"):
         _first_tick_arrived=asyncio.Event(),
         _first_tick_done=asyncio.Event(),
         _first_tick_error="",
+        # The shift clock and request budget (agent-config.json). Neutral here:
+        # these tests are about the status a loop leaves on exit, not its pacing.
+        _shift_over=_never_over,
+        _budget_hold=_no_hold,
+        _requests_booked=lambda: 0,
+        _learn_requests_per_tick=lambda booked_before: None,
+        _next_gap=float,
     )
     # The shared teardown every exit path ends in (ARCH-646).
     stub._reap_client = partial(TickEngine._reap_client, stub)
@@ -87,6 +94,14 @@ def _stub_engine(session_dir: Path, *, restart_on_boot=True, mode="loop"):
 
 async def _swallow(msg):
     pass
+
+
+async def _never_over():
+    return False
+
+
+async def _no_hold():
+    return 0.0
 
 
 @pytest.fixture

@@ -189,7 +189,7 @@ def test_muting_a_stock_skill_works_and_writes_locally(stock):
 
 
 def test_deleting_a_stock_agent_is_refused(stock):
-    with pytest.raises(ValueError, match="ships with Condor"):
+    with pytest.raises(ValueError, match="ships with Griffin"):
         AgentStore().delete("scout")
     assert (stock / "AGENT.md").exists()
 
@@ -200,7 +200,7 @@ def test_deleting_a_stock_strategy_is_refused(stock):
         "---\nname: Shipped\n---\n\ntick\n",
     )
 
-    with pytest.raises(ValueError, match="ships with Condor"):
+    with pytest.raises(ValueError, match="ships with Griffin"):
         StrategyStore().delete("scout", "shipped")
     assert (stock / "loops" / "shipped" / "loop.md").exists()
 

@@ -3,6 +3,9 @@ import { createPortal } from "react-dom";
 
 import { useDismissOnOutsideClick } from "@/hooks/useDismissOnOutsideClick";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
+import { getLayoutScale, getLayoutViewport, toLayoutRect } from "@/lib/layout-scale";
+
+import "./workspace-surfaces.css";
 
 interface Props {
   /** The button the panel hangs off. */
@@ -90,60 +93,69 @@ export function AnchoredMenu({
     width?: number;
     minWidth?: number;
   } | null>(null);
+  const placed = pos !== null;
 
   // Stale coordinates from a previous open are harmless: the panel renders
   // nothing while closed, and this runs before the browser paints the reopen.
   useLayoutEffect(() => {
     if (!open || !anchor) return;
     const place = () => {
-      const r = anchor.getBoundingClientRect();
-      const below = window.innerHeight - r.bottom - gap - EDGE;
-      const above = r.top - gap - EDGE;
+      const scale = getLayoutScale();
+      const layoutViewport = getLayoutViewport(scale);
+      const r = toLayoutRect(anchor.getBoundingClientRect(), scale);
+      // A phone keyboard and pinch zoom change the visible viewport without
+      // changing layout coordinates. Keep the whole menu in the visible area.
+      const viewport = window.visualViewport;
+      const leftEdge = (viewport?.offsetLeft ?? 0) / scale + EDGE;
+      const topEdge = (viewport?.offsetTop ?? 0) / scale + EDGE;
+      const rightEdge = ((viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth)) / scale - EDGE;
+      const bottomEdge = ((viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)) / scale - EDGE;
+      const availableWidth = Math.max(0, rightEdge - leftEdge);
+      const anchorTop = Math.max(topEdge, Math.min(bottomEdge, r.top));
+      const anchorBottom = Math.max(topEdge, Math.min(bottomEdge, r.bottom));
+      const below = bottomEdge - anchorBottom - gap;
+      const above = anchorTop - gap - topEdge;
       // Open upward only when downward is cramped *and* upward is roomier —
       // otherwise the familiar direction wins.
       const cap = (room: number) =>
         Math.max(maxHeight ? Math.min(room, maxHeight) : room, 0);
       const vertical =
         below < Math.min(MIN_ROOM, above)
-          ? { bottom: window.innerHeight - r.top + gap, maxHeight: cap(above) }
-          : { top: r.bottom + gap, maxHeight: cap(below) };
+          ? { bottom: layoutViewport.height - anchorTop + gap, maxHeight: cap(above) }
+          : { top: anchorBottom + gap, maxHeight: cap(below) };
+      const measuredWidth = menuRef.current?.offsetWidth || (menuRef.current ? menuRef.current.getBoundingClientRect().width / scale : r.width);
+      const panelWidth = Math.min(measuredWidth, availableWidth);
       const horizontal =
         align === "right"
-          ? { right: Math.max(EDGE, window.innerWidth - r.right) }
-          : { left: Math.max(EDGE, r.left) };
+          ? { right: layoutViewport.width - Math.max(leftEdge + panelWidth, Math.min(rightEdge, r.right)) }
+          : { left: Math.max(leftEdge, Math.min(r.left, rightEdge - panelWidth)) };
       setPos({
         ...vertical,
         ...horizontal,
-        // The horizontal mirror of maxHeight: never wider than the room left
-        // on the side the panel is pinned to. A fixed-width panel (`w-64`) on
-        // a trigger near the far edge would otherwise run off the window,
-        // where — unlike vertical overflow — nothing scrolls it back.
-        maxWidth: Math.max(
-          window.innerWidth -
-            (horizontal.right ?? horizontal.left ?? EDGE) -
-            EDGE,
-          0,
-        ),
-        width: matchAnchorWidth === "exact" ? r.width : undefined,
-        minWidth: matchAnchorWidth === "min" ? r.width : undefined,
+        maxWidth: availableWidth,
+        width: matchAnchorWidth === "exact" ? Math.min(r.width, availableWidth) : undefined,
+        minWidth: matchAnchorWidth === "min" ? Math.min(r.width, availableWidth) : undefined,
       });
     };
     place();
     // Capture phase: the page's own scroll containers do not bubble scroll.
     window.addEventListener("scroll", place, true);
     window.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
     return () => {
       window.removeEventListener("scroll", place, true);
       window.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
     };
-  }, [open, anchor, align, matchAnchorWidth, maxHeight, gap]);
+  }, [open, anchor, align, matchAnchorWidth, maxHeight, gap, placed]);
 
   // Tab order follows the DOM, and the DOM now says the panel is a sibling of
   // the whole app rather than a child of its trigger. Without this, Tab from an
   // open menu walks into whatever control comes next *on the page*, leaving the
   // options unreachable from the keyboard. Runs after the layout effect above
   // on purpose: the panel is not in the DOM until `pos` is set.
-  const placed = pos !== null;
   useEffect(() => {
     if (!open || !placed) return;
     const panel = menuRef.current;
@@ -192,7 +204,7 @@ export function AnchoredMenu({
         width: pos.width,
         minWidth: pos.minWidth,
       }}
-      className={`z-50 overflow-y-auto rounded-lg border border-[var(--color-border)] focus:outline-none bg-[var(--color-surface)] shadow-xl ${className}`}
+      className={`workspace-popover anchored-menu z-50 overflow-y-auto rounded-xl border border-[var(--color-border)] focus:outline-none bg-[var(--color-surface)] shadow-xl ${className}`}
     >
       {children}
     </div>,

@@ -9,7 +9,7 @@ import {
 import { CHAT_SLUG } from "@/lib/api";
 
 describe("normalizeAgentSlug", () => {
-  it("maps the registry's name for Condor onto the chat's empty slug", () => {
+  it("maps the registry's name for Griffin onto the chat's empty slug", () => {
     expect(normalizeAgentSlug(CHAT_SLUG)).toBe("");
     expect(normalizeAgentSlug("condor")).toBe("");
   });
@@ -20,7 +20,7 @@ describe("normalizeAgentSlug", () => {
     expect(normalizeAgentSlug("condor-lite")).toBe("condor-lite");
   });
 
-  it("treats nothing at all as Condor", () => {
+  it("treats nothing at all as Griffin", () => {
     expect(normalizeAgentSlug("")).toBe("");
     expect(normalizeAgentSlug(null)).toBe("");
     expect(normalizeAgentSlug(undefined)).toBe("");
@@ -29,7 +29,7 @@ describe("normalizeAgentSlug", () => {
 });
 
 describe("bubbleAgentSlug", () => {
-  it("binds Condor's own page to the unbound chat", () => {
+  it("binds Griffin's own page to the unbound chat", () => {
     expect(bubbleAgentSlug("/agents/condor")).toBe("");
     // ...and to the same one the bubble uses everywhere else, which is the
     // defect: two buckets meant two "Condor" conversations.
@@ -44,7 +44,7 @@ describe("bubbleAgentSlug", () => {
     expect(bubbleAgentSlug("/agents/orca%20lp")).toBe("orca lp");
   });
 
-  it("binds every other page to Condor", () => {
+  it("binds every other page to Griffin", () => {
     expect(bubbleAgentSlug("/")).toBe("");
     expect(bubbleAgentSlug("/portfolio")).toBe("");
     expect(bubbleAgentSlug("/agents")).toBe("");
@@ -52,7 +52,7 @@ describe("bubbleAgentSlug", () => {
 });
 
 describe("isAgentPage", () => {
-  it("is true for an agent's own page, Condor's included", () => {
+  it("is true for an agent's own page, Griffin's included", () => {
     expect(isAgentPage("/agents/orca-lp")).toBe(true);
     expect(isAgentPage("/agents/orca-lp/knowledge")).toBe(true);
     // The case `bubbleAgentSlug` alone cannot answer: it normalizes to "",
@@ -75,7 +75,7 @@ describe("slotFor", () => {
     info: { slot_id, agent_slug },
   });
 
-  it("matches the slot's binding normalized, so a legacy \"condor\" record is Condor's", () => {
+  it("matches the slot's binding normalized, so a legacy \"condor\" record is Griffin's", () => {
     const slots = [slot("a", "condor"), slot("b", "orca")];
     expect(slotFor(slots, "", null)).toBe(slots[0]);
     expect(slotFor(slots, "orca", null)).toBe(slots[1]);

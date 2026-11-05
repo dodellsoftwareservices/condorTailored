@@ -6,8 +6,8 @@
  * a 403 here is not a failure — it is how the dashboard learns the current user
  * is not an admin and hides the panel (there is no `is_admin` claim on the
  * client today). That needs an error that carries its status code, which
- * `apiFetch` deliberately flattens into a message, so this module does its own
- * fetch over the shared `authHeaders`.
+ * `apiFetch` deliberately flattens into a message, so this module does its
+ * own fetch instead.
  *
  * Hiding the panel is cosmetic only. `routes/admin.py` re-reads the role from
  * the ConfigManager on every request and is the actual gate. Nothing the panel
@@ -15,8 +15,6 @@
  * the server as a 409 with a stated reason, and the panel renders that reason
  * rather than trying to anticipate it.
  */
-
-import { authHeaders } from "./auth-token";
 
 /** An error from an admin route, with the HTTP status preserved. */
 export class AdminApiError extends Error {
@@ -39,15 +37,14 @@ export function isForbidden(error: unknown): boolean {
  *
  * Exported because `lib/updates-api.ts` needs the identical contract — admin
  * routes, and a 403 that must survive as a status rather than be flattened
- * into a message. A second copy would be a second place for the auth header
- * and the error shape to drift.
+ * into a message. A second copy would be a second place for the error shape
+ * to drift.
  */
 export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...authHeaders(),
       ...(init?.headers as Record<string, string>),
     },
   });
@@ -99,6 +96,8 @@ export interface AdminPerson {
    * unrevokable — so the row exists precisely to offer the revoke.
    */
   known: boolean;
+  /** Whether this person currently has 2FA on — see `resetTwoFactor` below. */
+  two_factor_enabled: boolean;
 }
 
 /** One audit-log line, with both parties named — mirrors `AuditEntry`. */
@@ -149,6 +148,17 @@ export const adminApi = {
     adminFetch<AdminPerson>(`/api/v1/admin/people/${userId}/code-run`, {
       method: "PUT",
       body: JSON.stringify({ granted }),
+    }),
+
+  /**
+   * Turn off 2FA for someone who has lost both their authenticator and their
+   * recovery codes — the only recovery path for that lockout. Audited
+   * server-side with this admin as the actor, distinct from a self-service
+   * disable.
+   */
+  resetTwoFactor: (userId: number) =>
+    adminFetch<AdminPerson>(`/api/v1/admin/people/${userId}/2fa`, {
+      method: "DELETE",
     }),
 
   /** Ask Telegram what the records with no stored name are called. */

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -29,6 +30,8 @@ from condor.acp.client import (
     fold_tool_call_event,
 )
 from condor.acp.pydantic_ai_client import PydanticAIClient
+from condor.agent_config import get_agent_config
+from condor.llm.budget import get_governor, next_reset, pace_delay
 from condor.runtime import toolsets
 from condor.runtime.registry_file import LoopState
 from condor.runtime.timeouts import resolve_tick_timeout
@@ -177,6 +180,17 @@ class TickEngine:
     # that is slow because its host is oversubscribed is the symptom the race
     # misread as a strategy bug. 0 = no tick has completed yet.
     _last_tick_duration: float = field(default=0.0, init=False)
+    # ── Request budget and shift clock (agent-config.json ``budget``; the
+    # ``shift_*`` / ``request_share`` keys of the run config) ──
+    # What one tick costs in model requests, as a moving average over the ticks
+    # this run has made. 0 until the first measured tick, when the pacer falls
+    # back to the configured assumption.
+    _requests_per_tick: float = field(default=0.0, init=False)
+    # The gap, in seconds, the pacer last put between two ticks (0 = unpaced).
+    _paced_gap: float = field(default=0.0, init=False)
+    # Whether the loop is holding for the day's request budget, so a hold that
+    # lasts hours is announced once rather than at every check.
+    _budget_hold_noted: bool = field(default=False, init=False, repr=False)
     # ── Liveness, as outcomes rather than attempts ([[FEAT-137]]) ──
     # ``_last_tick_at`` above is set at tick *start*, so it advances even when
     # every call in the tick failed: a session whose model is broken looks
@@ -783,12 +797,169 @@ class TickEngine:
             return f"no tick had started {timeout:.0f}s after the run was created"
         return self._first_tick_error
 
+    # ------------------------------------------------------------------
+    # Shift clock and request budget
+    # ------------------------------------------------------------------
+
+    def _uses_request_budget(self) -> bool:
+        """Whether this run's model is one the request budget meters."""
+        return get_governor().applies_to_agent_key(self._agent_key())
+
+    def _requests_booked(self) -> int:
+        """Requests the ledger has booked to this session so far today."""
+        if not self._uses_request_budget():
+            return 0
+        return get_governor().ledger.used_by(self.agent_id)
+
+    def _learn_requests_per_tick(self, booked_before: int) -> None:
+        """Fold what the tick that just ran cost into the per-tick average.
+
+        A tick that booked nothing (it died before its first request) teaches
+        nothing, so it leaves the average where it was.
+        """
+        spent = self._requests_booked() - booked_before
+        if spent <= 0:
+            return
+        if self._requests_per_tick <= 0:
+            self._requests_per_tick = float(spent)
+        else:
+            self._requests_per_tick = 0.7 * self._requests_per_tick + 0.3 * spent
+
+    def _expected_tick_requests(self) -> float:
+        measured = self._requests_per_tick
+        return (
+            measured
+            if measured > 0
+            else get_agent_config().budget.assumed_requests_per_tick
+        )
+
+    def _shift_end(self) -> float:
+        """The run's shift deadline as epoch seconds, or 0 when it has none."""
+        try:
+            return float(self.config.get("shift_ends_at") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    async def _shift_over(self) -> bool:
+        """End the run when its shift deadline has passed.
+
+        The shift runner stamps every loop it starts with ``shift_ends_at``, so
+        the end of a shift does not depend on the runner still being alive: the
+        engine stops itself. ``shift_end_action`` picks how. ``winddown`` (the
+        default) closes the run's positions per its shutdown policy, so the
+        shift's PnL is realized and nothing is left trading unattended; ``stop``
+        only stops, as a graceful stop does, leaving positions and bots.
+        """
+        ends = self._shift_end()
+        if not ends or time.time() < ends:
+            return False
+        action = str(self.config.get("shift_end_action") or "winddown")
+        log.info("TickEngine %s: shift deadline reached (%s)", self.agent_id, action)
+        if self.journal:
+            self.journal.append_action(
+                self.journal.tick_count, "shift_ended", f"deadline reached — {action}"
+            )
+        await self._notify(f"Agent {self.agent_id}: shift ended ({action}).")
+        if action == "stop":
+            await self._finish(LoopState.COMPLETED, "shift_deadline")
+        else:
+            await self._run_shutdown(reason="shift ended")
+        return True
+
+    async def _budget_hold(self) -> float:
+        """Seconds to wait before ticking because the request budget is spent.
+
+        0 means tick. While the day's budget (or the provider's own limit) cannot
+        pay for a tick, the loop does not start one: a tick that dies halfway
+        through a deploy is worse than a tick that waits. The bots a loop has
+        already deployed keep running on their own meanwhile. Announced once per
+        hold, in the journal and to the owner.
+        """
+        cfg = get_agent_config().budget
+        if not cfg.enabled or not self._uses_request_budget():
+            return 0.0
+        wait = get_governor().hold_seconds(math.ceil(self._expected_tick_requests()))
+        if wait <= 0:
+            if self._budget_hold_noted:
+                self._budget_hold_noted = False
+                if self.journal:
+                    self.journal.append_action(
+                        self.journal.tick_count,
+                        "budget_resumed",
+                        "request budget available again",
+                    )
+            return 0.0
+        if not self._budget_hold_noted:
+            self._budget_hold_noted = True
+            snap = get_governor().snapshot()
+            note = (
+                f"holding ticks: {snap.used} of {snap.cap} requests used today "
+                f"({snap.reserve} reserved); resumes when the budget resets or the "
+                "provider's limit lifts"
+            )
+            log.warning("TickEngine %s %s", self.agent_id, note)
+            if self.journal:
+                self.journal.append_action(self.journal.tick_count, "budget_hold", note)
+            await self._notify(f"Agent {self.agent_id}: {note}.")
+        # Re-checked at most every 15 minutes, and at least every 30 seconds
+        # once the end is near, so a reset or a lifted limit is noticed.
+        return min(max(wait, 30.0), 900.0)
+
+    def _next_gap(self, freq: int) -> float:
+        """Seconds to sleep after a tick: ``frequency_sec``, stretched to fit the budget.
+
+        Pacing only ever slows a loop. It aims the day's remaining requests at
+        whichever comes first of this run's shift end and the next daily reset
+        (:func:`condor.llm.budget.pace_delay`), so a loop does not spend the day
+        in its first hour. Never past the shift deadline: the run wakes at it
+        and ends there.
+        """
+        gap = float(freq)
+        cfg = get_agent_config().budget
+        if cfg.enabled and cfg.pacing and self._uses_request_budget():
+            now = time.time()
+            try:
+                share = float(self.config.get("request_share") or 1.0)
+            except (TypeError, ValueError):
+                share = 1.0
+            ends = self._shift_end()
+            gap = pace_delay(
+                frequency_sec=freq,
+                tick_seconds=self._last_tick_duration,
+                requests_per_tick=self._expected_tick_requests(),
+                remaining_requests=get_governor().remaining(now),
+                share=share,
+                now=now,
+                shift_end=ends or None,
+                reset_at=next_reset(now),
+            )
+            # Re-asked at least hourly: the budget a loop sees changes when its
+            # siblings finish, and a gap computed once would never notice.
+            gap = min(gap, 3600.0)
+        self._paced_gap = gap if gap > freq else 0.0
+        ends = self._shift_end()
+        if ends:
+            gap = min(gap, max(ends - time.time(), 0.0))
+        return gap
+
     async def _run_ticks(self, freq: int, mode: str) -> None:
         """The tick loop itself; ``_loop`` wraps it to settle the first tick."""
         while self._running:
+            gap = float(freq)
+            # Before the paused check: a paused loop's shift ends all the same.
+            if await self._shift_over():
+                return
             if not self._paused:
+                hold = await self._budget_hold()
+                if hold:
+                    try:
+                        await asyncio.sleep(hold)
+                    except asyncio.CancelledError:
+                        break
+                    continue
                 tick_error = ""
                 self._first_tick_arrived.set()
+                booked_before = self._requests_booked()
                 try:
                     await self._tick()
                     self._last_error = ""
@@ -812,6 +983,7 @@ class TickEngine:
                         )
 
                 self._note_first_tick(tick_error)
+                self._learn_requests_per_tick(booked_before)
 
                 # A shutdown that started *inside* the tick (the hard risk
                 # kill-switch) already ran its winddown, wrote the terminal
@@ -866,8 +1038,10 @@ class TickEngine:
                     await self._finish(LoopState.COMPLETED, "max_ticks")
                     return
 
+                gap = self._next_gap(freq)
+
             try:
-                await asyncio.sleep(freq)
+                await asyncio.sleep(gap)
             except asyncio.CancelledError:
                 break
 
@@ -1243,7 +1417,10 @@ class TickEngine:
         # real research needs more room than a quoting loop does.
         tick_timeout = resolve_tick_timeout(
             execution_mode=self.config.get("execution_mode", "loop"),
-            strategy=self.config.get("tick_timeout_sec"),
+            # The run's own setting wins; agent-config.json is the install-wide
+            # default, read here each tick so an edit applies to the next one.
+            strategy=self.config.get("tick_timeout_sec")
+            or get_agent_config().tick_timeout_sec,
         )
         try:
             async with asyncio.timeout(tick_timeout):
@@ -2212,6 +2389,26 @@ class TickEngine:
                 "TickEngine %s: could not record the failed run", self.agent_id
             )
 
+    def _request_budget_info(self) -> dict[str, Any]:
+        """What a status surface shows of the request budget and the shift clock.
+
+        Empty when neither is in play, so a run without ``agent-config.json``
+        reports exactly what it always did.
+        """
+        info: dict[str, Any] = {}
+        ends = self._shift_end()
+        if ends:
+            info["shift_ends_at"] = ends
+            info["shift_id"] = self.config.get("shift_id", "")
+        if get_agent_config().budget.enabled and self._uses_request_budget():
+            governor = get_governor()
+            info.update(governor.snapshot().to_dict())
+            info["this_run_requests"] = governor.ledger.used_by(self.agent_id)
+            info["requests_per_tick"] = round(self._requests_per_tick, 2)
+            info["paced_gap_sec"] = round(self._paced_gap, 1)
+            info["holding"] = self._budget_hold_noted
+        return info
+
     def get_info(self) -> dict[str, Any]:
         """Return a summary dict for display."""
         sd = self._last_skill_data
@@ -2257,8 +2454,10 @@ class TickEngine:
             "frequency_sec": self.config.get("frequency_sec", 60),
             "tick_timeout_sec": resolve_tick_timeout(
                 execution_mode=self.config.get("execution_mode", "loop"),
-                strategy=self.config.get("tick_timeout_sec"),
+                strategy=self.config.get("tick_timeout_sec")
+                or get_agent_config().tick_timeout_sec,
             ),
+            "request_budget": self._request_budget_info(),
             "server_name": self.config.get("server_name", ""),
             # The third pin, beside ``server_name`` and ``agent_key`` below.
             # Carried so an effective-vs-file diff covers the whole pin set
@@ -2382,4 +2581,9 @@ def build_gated_client(
         allowed_tools=engine.agent.tools or None,
         user_id=engine.user_id,
         base_url_override=engine.config.get("model_base_url") or None,
+        # So the request ledger books this tick's requests to the session, and a
+        # tick — which no human is watching — is held to the per-run cap and to
+        # what is left of the day's budget (agent-config.json).
+        budget_caller=engine.agent_id,
+        unattended=True,
     )

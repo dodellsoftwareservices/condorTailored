@@ -36,11 +36,13 @@
  * boundary does not know about, and sorting a new one into CLEARED or KEPT is a
  * decision this file forces someone to make and to record.
  *
- * The one exception is the credential trio (`condor_token`, `condor_user`,
- * `condor_selected_server`), which lives in lib/auth.ts and lib/auth-token.ts
- * beside the code that drops it: those are not sorted by this boundary because
- * logout clears them unconditionally, and auth-token.ts stays dependency-free
- * so the API client can read a token without pulling this module in.
+ * The one exception is the pair (`condor_user`, `condor_selected_server`),
+ * which lives in lib/auth.ts beside the code that drops it: those are not
+ * sorted by this boundary because logout clears them unconditionally. The
+ * session's actual credential is the HttpOnly `condor_session` cookie, which
+ * no JS module reads or writes at all — lib/auth-token.ts stays in the
+ * allowlist below only because it still shares the plain `fetch` wrapper
+ * other modules build on, not because it still touches storage.
  *
  * `sessionState.keys.test.ts` enforces both halves of that: no other module may
  * spell a storage key of its own, and that exception list is the only one.
@@ -92,6 +94,14 @@ export const CHAT_DRAFT_KEY_PREFIX = "condor.chat.draft:";
 
 /** The chosen theme, or absent for "follow the system" (hooks/useTheme). */
 export const THEME_KEY = "condor_theme";
+
+/** Volume/indicator/scale visibility is a device display preference. */
+export const CHART_PREFERENCES_KEY = "condor.chart.preferences";
+
+/** Workspace chrome geometry: device preferences retained across logins. */
+export const SHELL_RAIL_WIDTH_KEY = "condor_shell_rail_width";
+export const SHELL_RAIL_COLLAPSED_KEY = "condor_shell_rail_collapsed";
+export const SHELL_FOCUS_MODE_KEY = "condor_shell_focus_mode";
 
 /** Which currency amounts are rendered in (hooks/useDisplayCurrency). */
 export const DISPLAY_CURRENCY_KEY = "condor_display_currency";
@@ -213,6 +223,13 @@ export const CHAT_RAIL_OPEN_KEY = "condor.chat.rail.open";
  * is fetched for whoever is logged in now.
  */
 export const BUBBLE_OPEN_KEY = "condor_bubble_open";
+
+/**
+ * Whether the Get Started guide's side panel is open (components/guide).
+ *
+ * KEPT: the guide is the same text for everyone; only "was it open" is stored.
+ */
+export const GUIDE_OPEN_KEY = "condor_guide_open";
 
 /**
  * Whether `/trade`'s bottom pane is expanded (components/trade/TradeBottomPane).

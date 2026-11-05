@@ -165,6 +165,24 @@ local_mode_warning() {
     echo ""
 }
 
+# What skipping Tailscale on a remote VPS costs, said out loud. Neither
+# Condor's dashboard nor hummingbot-api's API configure TLS anywhere, so this
+# combination means the login token, the session cookie and hummingbot-api's
+# Basic Auth header all travel in cleartext over the open internet.
+remote_plaintext_warning() {
+    local ip="$1"
+    echo ""
+    msg_warn "No Tailscale + a public IP = an unencrypted dashboard on the open internet"
+    echo -e "    • Nothing here speaks TLS: the login link, your session cookie and"
+    echo -e "      hummingbot-api's own password all travel as plain HTTP."
+    echo -e "    • Anyone on the network path between you and ${BOLD}$ip${RESET} can read or"
+    echo -e "      replay them — a shared Wi-Fi, a compromised router, the VPS provider."
+    echo -e "    • Fix it later with Tailscale (${BOLD}make setup${RESET}, pick it next time) or your own"
+    echo -e "      reverse proxy with a real certificate. Until then, treat this URL the"
+    echo -e "      way you'd treat an unlocked front door."
+    echo ""
+}
+
 # OSC 8 clickable hyperlink (falls back to plain URL)
 make_link() {
     local url="$1"
@@ -854,6 +872,9 @@ elif [ "${condor_mode_choice:-}" = "1" ]; then
         echo -e "    ${BOLD}Remote VPS${RESET}                         — enter the server's public IP"
         prompt_visible "Public IP or hostname (press Enter for localhost)" "" "server_ip"
         SERVER_IP="${server_ip:-}"
+        if [ -n "$SERVER_IP" ]; then
+            remote_plaintext_warning "$SERVER_IP"
+        fi
     fi
 
     if [[ "${use_tailscale_early:-}" =~ ^[Yy]$ ]]; then

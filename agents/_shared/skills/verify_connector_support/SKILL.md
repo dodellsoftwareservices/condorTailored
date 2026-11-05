@@ -25,7 +25,7 @@ Never guess connector capabilities from memory. Always pull the authoritative so
 | Kind | Examples | Runs through | Tools |
 |---|---|---|---|
 | **AMM / CLMM / DLMM pools, swap routers** | `meteora`, `raydium`, `orca`, `jupiter`, `uniswap`, `pancakeswap` | **Gateway** — `connector_name` is the network (`solana-mainnet-beta`); the DEX rides in `lp_provider` / `swap_provider` | `explore_dex_pools`, `manage_amm`, `manage_clmm`, `quote_swap` / `execute_swap`, `create_lp_executor`, `manage_gateway_config`† |
-| **CLOB (order-book) DEXs** | `hyperliquid`, `hyperliquid_perpetual`, `xrpl`, `dydx_v4_perpetual`, `injective_v2`, `injective_v2_perpetual`, `derive`, `derive_perpetual`, `dexalot` | **Hummingbot directly**, through the Hummingbot API — exactly like a CEX | `get_prices`, `get_portfolio_overview`, order book / trading rules via `run_code`, every executor, controllers and bots |
+| **CLOB (order-book) DEXs** | `xrpl`, `dydx_v4_perpetual`, `injective_v2`, `injective_v2_perpetual`, `derive`, `derive_perpetual`, `dexalot` | **Hummingbot directly**, through the Hummingbot API — exactly like a CEX | `get_prices`, `get_portfolio_overview`, order book / trading rules via `run_code`, every executor, controllers and bots |
 
 A CLOB DEX is a plain Hummingbot connector: its credentials go in Settings → Keys (not a
 Gateway wallet), it has no pools, and Gateway knows nothing about it. Never reach for
@@ -40,7 +40,7 @@ order book, it is a Hummingbot connector.
 
 ### Capability lookup steps
 
-1. **CLOB DEX questions** (`hyperliquid`, `xrpl`, …) → treat it as a CEX: balances via `get_portfolio_overview`, book and trading rules via `client.market_data.*` / `client.connectors.*` in `run_code`, deploy with executors or controllers
+1. **CLOB DEX questions** (`xrpl`, `dydx_v4_perpetual`, …) → treat it as a CEX: balances via `get_portfolio_overview`, book and trading rules via `client.market_data.*` / `client.connectors.*` in `run_code`, deploy with executors or controllers
 2. **LP / CLMM questions** (Gateway) → read the `create_lp_executor` tool description — its `lp_provider` parameter lists the supported DEXs
 3. **AMM swap / pool-creation questions** (Gateway) → `manage_amm()` (no action) — read the connector list
 4. **Pool discovery questions** (Gateway) → `explore_dex_pools` tool description lists supported connectors
@@ -73,7 +73,7 @@ Available connectors: ['binance', 'binance_perpetual', 'kucoin', 'kraken', ...]
 
 This is a **hard capability gap, not a transient error**. Retrying, changing the interval, changing `days`, or reformatting the pair will never make it succeed. The failing loop this skill exists to stop: agent setup asks for candles on a DEX → error → retries → error → user has to interrupt by hand.
 
-**Who has no candle feed:** every Gateway connector (AMM/CLMM/DLMM: `meteora`, `raydium`, `orca`, `uniswap`, `pancakeswap`, `jupiter`, …), plus any CEX or CLOB DEX not in the list the error prints — `xrpl` is one. Being a DEX is not the test: CLOB DEXs such as `hyperliquid` / `hyperliquid_perpetual` are Hummingbot connectors and do serve candles. The list is the authority — never assume from the name.
+**Who has no candle feed:** every Gateway connector (AMM/CLMM/DLMM: `meteora`, `raydium`, `orca`, `uniswap`, `pancakeswap`, `jupiter`, …), plus any CEX or CLOB DEX not in the list the error prints — `xrpl` is one. Being a DEX is not the test: CLOB DEXs such as `dydx_v4_perpetual` are Hummingbot connectors and do serve candles. The list is the authority — never assume from the name.
 
 ### What still works on that connector
 

@@ -481,7 +481,7 @@ describe("/dex/:network/:address", () => {
     expect(line).toContain("24h change +3.50%");
   });
 
-  it("says how much of what Condor holds here is still earning", () => {
+  it("says how much of what Griffin holds here is still earning", () => {
     const line = onScreenLine("/dex/solana/7qbRF6");
     // Only the open ranges in *this* pool, and out-of-range is the thing worth
     // spotting: a range you are outside of is earning nothing.
@@ -715,8 +715,9 @@ describe("/fleet — retired to the home's Execution panel (FEAT-114)", () => {
     expect(routeFacts("/fleet", "", qc)).toBeNull();
   });
 
-  it("contributes nothing at all from the home, which is the chat", () => {
-    expect(routeFacts("/", "", qc)).toBeNull();
+  it("describes the dashboard while keeping chat links free of page context", () => {
+    expect(routeFacts("/", "", qc)?.label).toBe("Portfolio dashboard");
+    expect(routeFacts("/agents", "", qc)).toBeNull();
     expect(routeFacts("/", "?view=chat", qc)).toBeNull();
     expect(routeFacts("/", "?agent=brigado&ask=status", qc)).toBeNull();
   });

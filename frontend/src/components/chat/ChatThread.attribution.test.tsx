@@ -43,7 +43,7 @@ function msg(partial: Partial<ChatMessage> & { role: ChatMessage["role"] }): Cha
 
 /** Just enough of the roster to put a name to a slug. */
 const ROSTER = [
-  { slug: "condor", name: "Condor" },
+  { slug: "condor", name: "Griffin" },
   { slug: "brigado", name: "Brigado" },
 ] as unknown as AgentSummary[];
 
@@ -125,7 +125,7 @@ describe("a transcript that changed hands", () => {
       ROSTER,
     );
 
-    expect(speakerLabels()).toEqual(["Condor", "Brigado"]);
+    expect(speakerLabels()).toEqual(["Griffin", "Brigado"]);
   });
 
   it("says the same thing after a reload, off the stored turns", () => {
@@ -141,7 +141,7 @@ describe("a transcript that changed hands", () => {
       ROSTER,
     );
 
-    expect(speakerLabels()).toEqual(["Condor", "Brigado"]);
+    expect(speakerLabels()).toEqual(["Griffin", "Brigado"]);
   });
 
   it("still separates the two when the roster has not loaded yet", () => {
@@ -156,7 +156,7 @@ describe("a transcript that changed hands", () => {
       ]),
     );
 
-    expect(speakerLabels()).toEqual(["Condor", "Brigado"]);
+    expect(speakerLabels()).toEqual(["Griffin", "Brigado"]);
   });
 
   it("leaves an unstamped legacy transcript to the divider walk", () => {

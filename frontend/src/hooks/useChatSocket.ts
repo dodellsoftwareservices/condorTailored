@@ -13,7 +13,6 @@ import { useAuth } from "@/lib/auth";
 import { addUsage } from "@/lib/usage";
 import { namesATool, toolCallState } from "@/lib/formatters";
 import { collectViewFacts, renderViewBlock } from "@/lib/viewFacts";
-import { WS_AUTH_SUBPROTOCOL } from "@/lib/websocket";
 
 export interface ToolCall {
   tool_call_id: string;
@@ -605,8 +604,7 @@ export function useChatSocket() {
   // we just cancelled, and an unmounted hook keeps rebuilding a socket — with
   // the logged-out session's JWT — every few seconds for the life of the tab.
   const shouldConnect = useRef(false);
-  // JWT the live socket was opened with, so a token change rebinds instead of
-  // riding on a connection authenticated as the previous session.
+  // Non-secret session identity; a login change must replace the old socket.
   const socketToken = useRef<string | null>(null);
   // Backoff for the retry, same shape as `CondorWebSocket`: a server that is
   // down must not be hammered once per interval by every open tab.
@@ -1125,12 +1123,12 @@ export function useChatSocket() {
     closeSocket();
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = import.meta.env.DEV ? "localhost:8088" : window.location.host;
+    // Keep the cookie's host in development too (127.0.0.1 and localhost are
+    // different cookie hosts). Vite proxies the API WebSocket upgrade.
+    const host = window.location.host;
     const url = `${protocol}//${host}/api/v1/ws/chat`;
 
-    // Pass the JWT via the Sec-WebSocket-Protocol subprotocol header instead of
-    // the URL query string, so it never leaks via proxy logs or history.
-    const ws = new WebSocket(url, [WS_AUTH_SUBPROTOCOL, token]);
+    const ws = new WebSocket(url);
     wsRef.current = ws;
     socketToken.current = token;
 

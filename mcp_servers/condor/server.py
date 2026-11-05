@@ -1,4 +1,4 @@
-"""Condor MCP Server -- exposes Condor capabilities to AI agents.
+"""Griffin MCP Server -- exposes Griffin capabilities to AI agents.
 
 Thin wrapper layer: tool registration + docstrings only.
 All business logic lives in mcp_servers.condor.tools.*
@@ -25,6 +25,9 @@ from mcp_servers.condor.tools import (
     notification,
     routines,
     servers,
+)
+from mcp_servers.condor.tools import sim_exchange as sim_exchange_tool
+from mcp_servers.condor.tools import (
     skills,
     trading_agent,
 )
@@ -48,7 +51,7 @@ _RUN_CODE_RULE = (
 
 _CHAT_ROUTINES_RULE = (
     "- ROUTINES ARE SPECIAL: any request to CREATE, EDIT, FIX, DEBUG, or "
-    "design a routine MUST go to a background Condor worker — "
+    "design a routine MUST go to a background Griffin worker — "
     '`delegate(action="start", agent="condor", task="build a routine that …")`. '
     "It returns a task_id immediately (you are NOT blocked), reads the "
     "`routine_cookbook` playbook, writes and TESTS the routine, and pings the "
@@ -77,12 +80,12 @@ _WORKER_ROUTINES_RULE = (
 
 
 def _chat_base() -> str:
-    """Routing rules for the Condor coordinator — the unbound chat assistant."""
+    """Routing rules for the Griffin coordinator — the unbound chat assistant."""
     return _coordinator_base(_CHAT_ROUTINES_RULE)
 
 
 def _worker_base() -> str:
-    """Routing rules for a BACKGROUND Condor worker (``--delegate-worker``).
+    """Routing rules for a BACKGROUND Griffin worker (``--delegate-worker``).
 
     The chat and the worker resolve the same agent record (FEAT-033), so this is
     ``_chat_base()`` with the routines branch swapped for "authoring is yours",
@@ -92,7 +95,7 @@ def _worker_base() -> str:
     not a guard.
     """
     return (
-        "You are a BACKGROUND WORKER instance of Condor: a detached session that "
+        "You are a BACKGROUND WORKER instance of Griffin: a detached session that "
         "`delegate` started to carry ONE task to completion, unattended. There is "
         "no user in the loop to ask — make the reasonable call, do the work "
         "yourself, and report what you actually did and verified.\n"
@@ -112,7 +115,7 @@ def _worker_base() -> str:
 def _coordinator_base(routines_rule: str) -> str:
     """The coordinator routing text, parameterized on its ROUTINES branch."""
     return (
-        "Condor exposes reusable **skills** (playbooks, some linked to a runnable "
+        "Griffin exposes reusable **skills** (playbooks, some linked to a runnable "
         "routine) and **domain agents** you can hand work to, on top of these "
         "tools.\n\n"
         "ROUTING RULE — before handling a request with raw tools (including tools "
@@ -152,7 +155,7 @@ def _agent_base(slug: str, name: str, worker: bool = False) -> str:
     """Routing rules for a subprocess launched AS an Agent (``--agent-slug``).
 
     Same three-tier priority, read from the specialist's seat: its skills are
-    its own playbooks (plus the ones Condor publishes), routine authoring is its
+    its own playbooks (plus the ones Griffin publishes), routine authoring is its
     own work, and delegating to a PEER is for work outside its domain.
 
     An agent may also start a fresh BACKGROUND session of *itself* (FEAT-041).
@@ -250,34 +253,34 @@ def _build_instructions() -> str:
     """Server-level instructions surfaced to the MCP host on connect.
 
     An external MCP client (Claude Code, Cursor, …) only receives a flat list of
-    tool names — it never sees Condor's skills/agents indexes, which are injected
+    tool names — it never sees Griffin's skills/agents indexes, which are injected
     only into the in-bot `/agent` brain prompt. Without this, the host reaches for
     whatever obvious tool is in scope (e.g. a raw `manage_bots`) instead of the
-    matching Condor playbook. We embed the live indexes here so any host can route
+    matching Griffin playbook. We embed the live indexes here so any host can route
     a request to the right skill/agent. Built once at import; cheap and read-only.
 
     One rule governs all three sections: **this text describes the assistant this
     subprocess belongs to**. Under ACP v1 there is no system-prompt channel
     (`session/new` carries only cwd + mcpServers), so these instructions are the
-    strongest frame Condor controls — which is why a subprocess launched with
+    strongest frame Griffin controls — which is why a subprocess launched with
     ``--agent-slug`` must read its own identity here and not the coordinator's
     (FEAT-025).
 
     The chat's own subprocess now carries ``--agent-slug condor`` (FEAT-033), so
     the branch reads ``specialist_slug``: keyed on the raw slug it would serve
-    Condor the specialist framing — including ``identity_header``'s "You are NOT
-    Condor", which would be false — and nothing would error, the answers would
+    Griffin the specialist framing — including ``identity_header``'s "You are NOT
+    Griffin", which would be false — and nothing would error, the answers would
     just quietly get worse.
 
     A third seat exists for the same record: ``--delegate-worker`` (FEAT-032)
-    marks the detached Condor that ``delegate`` starts to author a routine. It
+    marks the detached Griffin that ``delegate`` starts to author a routine. It
     reads ``_worker_base`` — the coordinator text with authoring made its own job
     and delegation closed off.
 
     A specialist has that background seat too (FEAT-041), since an agent can now
     start a delegation of *itself*. It reads its own ``_agent_base`` in both
     seats — ``worker=True`` swaps the "spawn a copy of yourself" invitation for
-    the unattended framing — never ``_worker_base``, which is Condor's.
+    the unattended framing — never ``_worker_base``, which is Griffin's.
     """
     from mcp_servers.condor.settings import settings
 
@@ -450,6 +453,292 @@ async def delegate(
     )
 
 
+@handle_errors("sim market snapshot")
+@telemetry_taps.tracked("sim_market_snapshot")
+async def sim_market_snapshot(
+    pair: str,
+    candles: int = 0,
+    candle_minutes: Literal[1, 5, 15, 30, 60, 240, 1440] = 15,
+) -> dict:
+    """Live Kraken spot market state for the SIMULATED exchange.
+
+    Real public prices and order-book depth; nothing here touches a real account.
+    Returns best bid/ask, spread, depth within 10/25/50 bps, the price impact of
+    $500/$1000/$2500 market orders, your current maker/taker fee rates, the
+    round-trip cost in bps an edge must beat, and the pair's tick size and
+    minimum order. Read `round_trip_cost_bps` before every decision.
+
+    Args:
+        pair: e.g. "BTC-USD". Only USD-quoted pairs are simulated.
+        candles: How many recent candles to include (0 = none, max 200).
+        candle_minutes: Candle size in minutes.
+
+    Returns:
+        A market snapshot dict, or {"error": "..."}.
+    """
+    return await sim_exchange_tool.snapshot(pair, candles, candle_minutes)
+
+
+@handle_errors("sim submit order")
+@telemetry_taps.tracked("sim_submit_order")
+async def sim_submit_order(
+    pair: str,
+    side: Literal["buy", "sell"],
+    order_type: Literal["market", "limit"] = "market",
+    qty: str | None = None,
+    quote_amount: str | None = None,
+    limit_price: str | None = None,
+    post_only: bool = False,
+    client_order_id: str | None = None,
+) -> dict:
+    """Submit a SIMULATED spot order on live Kraken prices. No real money moves.
+
+    Market orders walk the real order book after a simulated network delay, pay
+    the taker fee and report slippage against the arrival mid. Limit orders rest
+    in a queue and fill only when real trades print at or through the price,
+    paying the maker fee. The exchange enforces tick size, lot size and minimum
+    order value, and hard limits you cannot change: per-order size, per-asset
+    position, gross exposure, cash reserve and open-order count. A rejection
+    names the reason; do not retry the same order expecting a different answer.
+
+    Args:
+        pair: e.g. "BTC-USD".
+        side: "buy" or "sell". Spot only: you cannot sell what you do not hold.
+        order_type: "market" or "limit".
+        qty: Base-asset quantity as a decimal string (market sell, limit).
+        quote_amount: USD to spend as a decimal string (market buy only; use
+                      instead of qty).
+        limit_price: Limit price as a decimal string, a multiple of the tick size.
+        post_only: Limit only. Reject instead of crossing the book as a taker.
+        client_order_id: Your own unique id. Retrying with the same id is a no-op,
+                         so always set one.
+
+    Returns:
+        {"order": ..., "fills": [...], "cash": ..., "holding": ...}, or {"error": "..."}.
+    """
+    body = {
+        "pair": pair,
+        "side": side,
+        "type": order_type,
+        "post_only": post_only,
+        "client_order_id": client_order_id or "",
+    }
+    for key, value in (
+        ("qty", qty),
+        ("quote_amount", quote_amount),
+        ("price", limit_price),
+    ):
+        if value is not None:
+            body[key] = value
+    return await sim_exchange_tool.submit_order(body)
+
+
+@handle_errors("sim cancel order")
+@telemetry_taps.tracked("sim_cancel_order")
+async def sim_cancel_order(order_id: str) -> dict:
+    """Cancel an open SIMULATED limit order and release its reserved funds.
+
+    Args:
+        order_id: The id returned by sim_submit_order.
+
+    Returns:
+        {"order": ...} with the final status, or {"error": "..."}.
+    """
+    return await sim_exchange_tool.cancel_order(order_id)
+
+
+@handle_errors("sim list orders")
+@telemetry_taps.tracked("sim_list_orders")
+async def sim_list_orders() -> dict:
+    """List open and recent SIMULATED orders, first letting the real trade tape fill any resting limit orders.
+
+    Returns:
+        {"open": [...], "recent": [...], "fills_just_processed": [...]}.
+    """
+    return await sim_exchange_tool.list_orders()
+
+
+@handle_errors("sim portfolio")
+@telemetry_taps.tracked("sim_portfolio")
+async def sim_portfolio() -> dict:
+    """The SIMULATED account: equity, cash, positions marked to live mid prices, unrealized P&L, 30-day volume.
+
+    Returns:
+        Portfolio dict, or {"error": "..."}.
+    """
+    return await sim_exchange_tool.portfolio()
+
+
+@handle_errors("sim cost report")
+@telemetry_taps.tracked("sim_cost_report")
+async def sim_cost_report() -> dict:
+    """Where the SIMULATED account's money went: fees, slippage, LLM requests, fixed running cost.
+
+    Reports net P&L after all costs, gross P&L before execution costs, and fees
+    and slippage in bps of traded volume. Use it to check whether trading is
+    paying for itself.
+
+    Returns:
+        Cost report dict, or {"error": "..."}.
+    """
+    return await sim_exchange_tool.cost_report()
+
+
+@handle_errors("sim futures snapshot")
+@telemetry_taps.tracked("sim_fut_snapshot")
+async def sim_fut_snapshot(
+    symbol: str,
+    candles: int = 0,
+    candle_minutes: Literal[1, 5, 15, 30, 60, 240, 1440] = 15,
+) -> dict:
+    """Live Kraken perpetual-futures state for the SIMULATED futures account.
+
+    Real public prices, order-book depth, funding rate and open interest; nothing
+    here touches a real account. Returns bid/ask, mark, spread, depth, the impact
+    of $500/$1000/$2500 market orders, the hourly and annualized FUNDING rate
+    (positive: longs pay shorts), your maker/taker fees, round-trip cost in bps,
+    your current position, and the contract rules. Shorting is allowed.
+
+    Args:
+        symbol: e.g. "BTC-USD" or "PF_XBTUSD".
+        candles: How many recent candles to include (0 = none, max 200).
+        candle_minutes: Candle size in minutes.
+
+    Returns:
+        A snapshot dict, or {"error": "..."}.
+    """
+    return await sim_exchange_tool.fut_snapshot(symbol, candles, candle_minutes)
+
+
+@handle_errors("sim futures submit order")
+@telemetry_taps.tracked("sim_fut_submit_order")
+async def sim_fut_submit_order(
+    symbol: str,
+    side: Literal["buy", "sell"],
+    order_type: Literal["market", "limit"] = "market",
+    qty: str | None = None,
+    limit_price: str | None = None,
+    post_only: bool = False,
+    reduce_only: bool = False,
+    client_order_id: str | None = None,
+) -> dict:
+    """Submit a SIMULATED perpetual-futures order on live Kraken prices. No real money moves.
+
+    "buy" opens or grows a long, or shrinks a short; "sell" opens or grows a short, or
+    shrinks a long. Market orders walk the real book and pay the taker fee. Limit
+    orders rest in a queue and fill only from real trades, paying the maker fee.
+    Funding accrues on open positions. The exchange enforces tick and lot size, plus
+    hard owner limits you cannot change: per-order size, per-contract position, leverage
+    and open-order count. Falling under maintenance margin liquidates the position at a
+    penalty. A rejection names the reason; do not retry the same order.
+
+    Args:
+        symbol: e.g. "BTC-USD".
+        side: "buy" or "sell".
+        order_type: "market" or "limit".
+        qty: Size in the base asset (e.g. BTC) as a decimal string.
+        limit_price: Limit price as a decimal string, a multiple of the tick size.
+        post_only: Limit only. Reject instead of crossing the book as a taker.
+        reduce_only: The order may only shrink an existing position, never grow or flip it.
+                     Use it for exits.
+        client_order_id: Your own unique id. Retrying with the same id is a no-op.
+
+    Returns:
+        {"order": ..., "fills": [...], "cash": ..., "position": ...}, or {"error": "..."}.
+    """
+    body = {
+        "symbol": symbol,
+        "side": side,
+        "type": order_type,
+        "post_only": post_only,
+        "reduce_only": reduce_only,
+        "client_order_id": client_order_id or "",
+    }
+    for key, value in (("qty", qty), ("price", limit_price)):
+        if value is not None:
+            body[key] = value
+    return await sim_exchange_tool.fut_submit_order(body)
+
+
+@handle_errors("sim futures cancel order")
+@telemetry_taps.tracked("sim_fut_cancel_order")
+async def sim_fut_cancel_order(order_id: str) -> dict:
+    """Cancel an open SIMULATED futures limit order.
+
+    Args:
+        order_id: The id returned by sim_fut_submit_order.
+
+    Returns:
+        {"order": ...} with the final status, or {"error": "..."}.
+    """
+    return await sim_exchange_tool.fut_cancel_order(order_id)
+
+
+@handle_errors("sim futures list orders")
+@telemetry_taps.tracked("sim_fut_list_orders")
+async def sim_fut_list_orders() -> dict:
+    """List open and recent SIMULATED futures orders, first letting the real trade tape fill resting limits.
+
+    Returns:
+        {"open": [...], "recent": [...], "fills_just_processed": [...]}.
+    """
+    return await sim_exchange_tool.fut_list_orders()
+
+
+@handle_errors("sim futures portfolio")
+@telemetry_taps.tracked("sim_fut_portfolio")
+async def sim_fut_portfolio() -> dict:
+    """The SIMULATED futures account: equity, collateral, long and short positions at the mark, unrealized P&L, leverage, funding paid.
+
+    Returns:
+        Portfolio dict, or {"error": "..."}.
+    """
+    return await sim_exchange_tool.fut_portfolio()
+
+
+@handle_errors("sim futures cost report")
+@telemetry_taps.tracked("sim_fut_cost_report")
+async def sim_fut_cost_report() -> dict:
+    """Where the SIMULATED futures account's money went: fees, slippage, funding, LLM requests.
+
+    Returns:
+        Cost report dict with net P&L after all costs, or {"error": "..."}.
+    """
+    return await sim_exchange_tool.fut_cost_report()
+
+
+@handle_errors("sim consult analysts")
+@telemetry_taps.tracked("sim_consult_analysts")
+async def sim_consult_analysts(
+    desk: Literal["spot", "futures"],
+    symbols: list[str],
+    question: str = "",
+) -> dict:
+    """Ask two or three FREE advisory analysts (Nemotron) to read daily and 4-hour statistics.
+
+    Use it when screening for a NEW entry, once per review at most. The analysts see
+    only precomputed statistics (trend, volatility, range, costs, funding), never your
+    account; they cannot trade and have no tools. Their briefs are opinion from free
+    models: verify against your own snapshot and never cite an analyst as the only
+    reason for a trade. You alone decide. The same symbols within thirty minutes return
+    the previous briefs (``cached: true``), and a desk gets at most two fresh consults per
+    half hour (``throttled: true`` after that).
+
+    Args:
+        desk: "spot" (the Kraken spot account) or "futures" (the perpetuals account).
+        symbols: One to three symbols, e.g. ["BTC-USD", "ETH-USD"].
+        question: Optional, up to 300 characters, for example "is a pullback entry
+                  still valid?".
+
+    Returns:
+        {"advisory": true, "analysts": [{"lens", "role", "model", "status", "brief"}]},
+        or {"error": "..."}.
+    """
+    return await sim_exchange_tool.consult_analysts(
+        {"desk": desk, "symbols": symbols, "question": question}
+    )
+
+
 @handle_errors("send notification")
 @telemetry_taps.tracked("send_notification")
 async def send_notification(
@@ -491,7 +780,7 @@ async def manage_routines(
     code: str | None = None,
     shared: bool | None = None,
 ) -> dict:
-    """Manage and run Condor routines (auto-discoverable Python scripts).
+    """Manage and run Griffin routines (auto-discoverable Python scripts).
 
     Actions -- Discovery & Execution:
     - "list": List all available routines with name, description, type, and scope
@@ -527,7 +816,7 @@ async def manage_routines(
     manage_skill's `shared`. A routine there is listed with scope="shared" and
     runs under its bare name from any seat. Publication is the library it lives
     in, not a flag in the file: `shared=True` on "create_routine" writes there.
-    Only Condor may publish — for an agent the flag is ignored and the routine
+    Only Griffin may publish — for an agent the flag is ignored and the routine
     lands in its own dir. Shared routines are read-only to agents: to specialize
     one, "create_routine" a local routine with the SAME name and it shadows the
     published one. Publish deliberately — a shared routine lands in every
@@ -544,7 +833,7 @@ async def manage_routines(
             the current assistant's own library.
         code: Python source code for create_routine / edit_routine.
         shared: Target the shared library every assistant reads (routine CRUD).
-            Condor only, and only without `agent` — for an agent it is ignored
+            Griffin only, and only without `agent` — for an agent it is ignored
             and the write stays in its own dir.
 
     Returns:
@@ -615,7 +904,7 @@ async def manage_agent_controllers(
     Args:
         action: The action to perform.
         name: Controller name (folder == module == controller_name).
-        agent: Target agent's slug — Condor only (onboarding into an agent).
+        agent: Target agent's slug — Griffin only (onboarding into an agent).
         sample: A style (sample config stem) for read/write/delete/upload_config.
         code: Controller source for write; YAML text when sample= is given.
         controller_md: CONTROLLER.md text for write (frontmatter `type:`/`description:`).
@@ -625,7 +914,7 @@ async def manage_agent_controllers(
         overwrite: Replace a differing server copy (sync — only after a sync
             without it previewed the impact; upload_config) or a differing
             folder copy (pull).
-        shared: Condor only, without agent — target the _shared library.
+        shared: Griffin only, without agent — target the _shared library.
 
     Returns:
         Action-specific result dict; refusals carry refused=true, reason and diff.
@@ -656,7 +945,7 @@ async def run_code(
     agent: str | None = None,
     limit: int = 20,
 ) -> dict:
-    """Run a Python snippet inside Condor and get its output back.
+    """Run a Python snippet inside Griffin and get its output back.
 
     The scratchpad below a routine: for a ONE-OFF computation over data — fetch
     candles, build a DataFrame, compute returns, filter the series — write the
@@ -896,7 +1185,7 @@ async def manage_agents(
       "validated" means a human reviewed ONE submitted revision once, and
       "community" means nobody did. Say which it is and say what it is NOT —
       the hub is a discovery service, not a security boundary; it is not a
-      signature, Condor verifies nothing against it, and it never shortens the
+      signature, Griffin verifies nothing against it, and it never shortens the
       review on install. Never read a badge back as a reason something is safe.
     - "hub_install": Install a listing (requires `path` = the listing_id;
       `agent_slug` renames it if the name is taken). The bytes are verified
@@ -954,7 +1243,7 @@ async def manage_agents(
             carried verbatim in the bundle. What changed since the last bundle
             of this agent.
         author_name: For "export" and "publish_hub" — who to credit. An
-            unverified claim: Condor signs nothing and the receiving install
+            unverified claim: Griffin signs nothing and the receiving install
             cannot check it. On a hub publish the hub attaches the account
             handle it authenticated beside it, as a separate fact.
 
@@ -1244,7 +1533,7 @@ async def manage_skill(
     it; there is no per-loop library). A launched agent WRITES only to its
     own. From the chat, pass `agent="<slug>"` to author or inspect a specific
     agent's library — DO THIS whenever the playbook belongs to a domain agent
-    rather than to the chat, otherwise the skill silently lands in Condor's own
+    rather than to the chat, otherwise the skill silently lands in Griffin's own
     library and only the chat sees it. Without `agent`, the current assistant's
     library is used.
 
@@ -1252,7 +1541,7 @@ async def manage_skill(
     assistant also reads, so a playbook like `routine_cookbook` reaches everyone.
     Publication is the library a skill lives in, not a flag: `shared=True` MOVES
     it there (companion files included) and `shared=False` moves it back. Only
-    Condor may publish — for an agent the flag is ignored. Shared skills are
+    Griffin may publish — for an agent the flag is ignored. Shared skills are
     read-only to agents (read reports `inherited`): to specialize one, "create" a
     local skill with the SAME name and it shadows the published one. Publish
     deliberately — a shared skill lands in every agent's context.
@@ -1281,7 +1570,7 @@ async def manage_skill(
         file: Bare name of a bundled companion file (for read_file/write_file).
         content: Full contents to write to the companion file (for write_file).
         shared: Publish this playbook to every assistant by moving it into the
-            shared library (create/edit); False moves it back. Condor only —
+            shared library (create/edit); False moves it back. Griffin only —
             ignored for an agent. Omit to leave publication unchanged.
 
     Returns:

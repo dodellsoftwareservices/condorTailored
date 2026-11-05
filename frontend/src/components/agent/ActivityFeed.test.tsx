@@ -31,6 +31,7 @@ import type { DelegationKind, DelegationSummary } from "@/lib/api";
 import { ActivityFeed } from "./ActivityFeed";
 
 vi.mock("@/lib/api", () => ({
+  CHAT_SLUG: "condor",
   api: {
     getDelegationHistory: vi.fn(
       async (agent?: string, limit?: number, kind?: string) => {
@@ -154,7 +155,7 @@ describe("one timeline, three kinds", () => {
     const [delegation, consult] = rows();
     expect(delegation.textContent).toContain("background");
     expect(delegation.querySelector("[data-tool-count]")!.textContent).toBe("22");
-    expect(consult.textContent).toContain("asked by condor");
+    expect(consult.textContent).toContain("asked by Griffin");
     // A consult has no tool count, so the cell is absent — never a zero.
     expect(consult.querySelector("[data-tool-count]")).toBeNull();
   });

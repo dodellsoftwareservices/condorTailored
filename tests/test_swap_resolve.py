@@ -390,7 +390,7 @@ def test_resolve_asks_the_server_and_returns_the_server_s_answer():
 
     url, kwargs = session.calls[0]
     assert url == f"http://api:8000/gateway/swaps/{TX}/resolve"
-    assert "json" not in kwargs, "Condor must send no state of its own"
+    assert "json" not in kwargs, "Griffin must send no state of its own"
     assert answered == {
         "transaction_hash": TX,
         "result": {"status": "CONFIRMED", "resolved_by": "chain_read"},
@@ -486,7 +486,7 @@ def test_the_mcp_tool_hands_back_the_server_s_answer_when_the_route_exists():
 
     assert result["supported"] is True
     assert result["result"] == {"status": "CONFIRMED"}
-    assert "Condor recorded nothing" in format_gateway_swap_result("resolve", result)
+    assert "Griffin recorded nothing" in format_gateway_swap_result("resolve", result)
 
 
 def test_resolve_is_registered_as_its_own_mcp_tool_and_is_not_gated():

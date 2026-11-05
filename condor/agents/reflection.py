@@ -327,6 +327,7 @@ async def reflect(user_id: int, meta: ConversationMeta) -> bool:
             mcp_servers=None,
             permission_callback=_deny,
             user_id=user_id,
+            budget_caller="reflection",
         )
         await client.start()
         answer = await client.prompt(prompt)

@@ -690,6 +690,59 @@ def _spawn_background(coro, label: str) -> asyncio.Task:
     return task
 
 
+async def _wait_for_local_web(timeout: float = 180.0, interval: float = 0.5) -> bool:
+    """True once the dashboard's own port accepts connections, False on timeout.
+
+    Loops resumed at boot talk to this process over HTTP, so they must not start
+    their first tick before it can answer.
+    """
+    import time
+
+    from utils.config import WEB_HOST, WEB_PORT
+
+    host = "127.0.0.1" if WEB_HOST in ("", "0.0.0.0", "::") else WEB_HOST
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, WEB_PORT), timeout=2
+            )
+        except (OSError, asyncio.TimeoutError):
+            await asyncio.sleep(interval)
+            continue
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except OSError:
+            pass
+        return True
+    return False
+
+
+async def _reconcile_loops(outbound_bot) -> None:
+    """Settle the previous process's loops, after the web server is accepting calls."""
+    if not await _wait_for_local_web():
+        logger.warning(
+            "Dashboard port did not open within the wait; reconciling loops anyway, "
+            "so resumed loops may fail their first tick"
+        )
+    from condor.runtime.loops import get_supervisor
+
+    try:
+        report = await get_supervisor().reconcile_boot()
+        if report.total or report.orphaned_executors:
+            logger.warning(
+                "Boot reconciliation: %d interrupted, %d restarted, "
+                "%d orphaned executors",
+                report.total,
+                len(report.restarted),
+                len(report.orphaned_executors),
+            )
+            await _notify_interrupted_runs(outbound_bot, report)
+    except Exception:
+        logger.exception("Boot reconciliation failed; continuing startup")
+
+
 async def startup(application: Application) -> None:
     """Bring the process up: commands, caches, supervisors, boot reconciliation.
 
@@ -708,6 +761,13 @@ async def startup(application: Application) -> None:
     from condor.migrations import ensure_migrated
 
     ensure_migrated()
+
+    # Which model, fallback and tool access each seat resolves to, in the log
+    # every run starts from. A model is set in five places and agent-config.json
+    # reaches only one of them, so this is where a mismatch becomes visible.
+    from condor.agents.seats import log_seats
+
+    log_seats()
 
     # Sync server permissions (ensures all servers have ownership entries)
     await sync_server_permissions()
@@ -787,21 +847,19 @@ async def startup(application: Application) -> None:
 
     # Settle whatever the previous process left running: mark orphaned loops
     # interrupted, restart only the ones that opted in, and tell the owner once.
-    from condor.runtime.loops import get_supervisor
+    # In the background, once the dashboard's port is open: a resumed loop's first
+    # tick calls back into this very server (the simulator and Condor MCP tools are
+    # HTTP clients of it), and this function returns before uvicorn is even created.
+    # Run inline, every resumed loop failed its first tick ("Tool 'sim_portfolio'
+    # exceeded max retries") and the restart was reported as failed.
+    _spawn_background(_reconcile_loops(outbound_bot), "Boot reconciliation")
 
-    try:
-        report = await get_supervisor().reconcile_boot()
-        if report.total or report.orphaned_executors:
-            logger.warning(
-                "Boot reconciliation: %d interrupted, %d restarted, "
-                "%d orphaned executors",
-                report.total,
-                len(report.restarted),
-                len(report.orphaned_executors),
-            )
-            await _notify_interrupted_runs(outbound_bot, report)
-    except Exception:
-        logger.exception("Boot reconciliation failed; continuing startup")
+    # The simulated market maker keeps its own autostart file; it resumes only if it was
+    # running (not stopped, not halted) when the last process went down.
+    from condor.web.routes.sim_exchange import resume_market_maker_on_boot
+
+    if await resume_market_maker_on_boot():
+        logger.info("Simulated market maker resumed after restart")
 
     # Schedule periodic update checks (notifies admin)
     from handlers.admin.update import schedule_update_checks
@@ -847,6 +905,45 @@ async def startup(application: Application) -> None:
         reflection.register_jobs(application)
     except Exception:
         logger.exception("Reflection job registration failed (continuing without it)")
+
+    # Conversation retention (system review 2026-10-31, finding #23): the
+    # store was never pruned at all. Reflection's neighbour by shape — same
+    # cross-user job-queue sweep — but off by default: unlike a reproducible
+    # cache, deleting a conversation is the one failure mode the transcript's
+    # own byte retention was built to avoid, so this only does anything once
+    # an operator opts in via CONDOR_CONVERSATION_RETENTION_DAYS.
+    try:
+        from condor.runtime import conversations
+
+        conversations.register_jobs(application)
+    except Exception:
+        logger.exception(
+            "Conversation prune job registration failed (continuing without it)"
+        )
+
+    # Probe backend authentication even when no routine is currently running.
+    try:
+        from condor.service_health import register_jobs as register_health_jobs
+
+        register_health_jobs(application)
+    except Exception:
+        logger.exception("Backend health job registration failed")
+
+    # Observe paper equity independently of dashboard visits, without matching orders.
+    try:
+        from condor.dashboard_history import register_jobs as register_dashboard_jobs
+
+        register_dashboard_jobs(application)
+    except Exception:
+        logger.exception("Dashboard equity sampler registration failed")
+
+    # Keep the monthly spend guard honest against the provider's own usage figure.
+    try:
+        from condor.llm.provider_usage import register_jobs as register_llm_usage_jobs
+
+        register_llm_usage_jobs(application)
+    except Exception:
+        logger.exception("Provider usage sync registration failed")
 
     # Start file watcher
     asyncio.create_task(watch_and_reload(application))
@@ -1187,6 +1284,32 @@ async def _run_dual(application: Application) -> None:
                     "tailnet address.",
                     WEB_HOST,
                 )
+    elif LOCAL_MODE:
+        pass  # loopback-only and logged again below with the rest of local-mode's startup banner
+    elif os.environ.get("WEB_HOST", "").strip():
+        # Same reasoning as the Tailscale branch above: an explicit WEB_HOST
+        # is a choice someone made, not a fault to flag on every boot.
+        logger.info(
+            "Dashboard on http://%s:%s — WEB_HOST was set explicitly.",
+            WEB_HOST,
+            WEB_PORT,
+        )
+    else:
+        # Telegram mode, no Tailscale, no explicit WEB_HOST: resolve_web_host
+        # fell back to 0.0.0.0, which authenticates (it is not local mode's
+        # open dashboard) but still speaks plain HTTP. Said on every boot,
+        # not just at setup time, because this also catches a manually edited
+        # .env that setup-environment.sh never saw.
+        logger.warning(
+            "Dashboard bound to %s:%s with no Tailscale and no TLS anywhere "
+            "in front of it: the login link, the session cookie and "
+            "hummingbot-api's own password all travel as plain HTTP to "
+            "whoever can reach this port. Set USE_TAILSCALE=true in .env "
+            "(then restart), or put a TLS-terminating reverse proxy in "
+            "front, before exposing this beyond localhost.",
+            WEB_HOST,
+            WEB_PORT,
+        )
     server = uvicorn.Server(_web_server_config(web_app))
 
     # Start WebSocket manager

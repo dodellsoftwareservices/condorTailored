@@ -181,7 +181,7 @@ export function HubBrowser({ onInstalled }: { onInstalled: () => void }) {
                   {listing.published_at && ` · published ${listing.published_at}`}
                 </span>
                 {/* Labelled, because a handle rendered beside a download reads
-                    as an identity Condor checked, and Condor checks nothing
+                    as an identity Griffin checked, and Griffin checks nothing
                     here: the hub says it authenticated this account, and
                     nothing binds the account to these bytes. */}
                 {(listing.author.handle || listing.author.name) && (

@@ -1,0 +1,40 @@
+/* More of the Zandvoort light-blue accent (the Griffin logo colour), text kept white.
+   Loaded after shell.css so it layers on top without editing the chrome styles. */
+:root:not([data-theme="light"]),
+[data-theme="dark"] {
+  --color-text: #ffffff;
+  --shell-active: color-mix(in srgb, var(--color-primary) 15%, transparent);
+  --shell-hover: color-mix(in srgb, var(--color-primary) 9%, transparent);
+  --shell-hairline: color-mix(in srgb, var(--color-primary) 22%, transparent);
+  --color-border-hover: color-mix(in srgb, var(--color-primary) 40%, #1c2541);
+}
+
+/* Navigation: blue active pill, blue hover wash, white labels. */
+.sidebar-link.is-active {
+  color: var(--color-text);
+  background: var(--shell-active);
+  border-color: color-mix(in srgb, var(--color-primary) 38%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-primary), 0 0 18px color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+.sidebar-link:hover .sidebar-link-icon { color: var(--color-primary); }
+.sidebar-link.is-active .sidebar-link-icon { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 55%, transparent)); }
+.mobile-dock-link.is-active { background: var(--shell-active); }
+
+/* Keep the griffin mark unframed; use blue on the surrounding chrome. */
+.app-topbar { border-bottom-color: color-mix(in srgb, var(--color-primary) 20%, transparent); }
+.app-sidebar { border-right-color: color-mix(in srgb, var(--color-primary) 16%, transparent); }
+.command-trigger, .sidebar-command { border-color: color-mix(in srgb, var(--color-primary) 26%, transparent); }
+.command-trigger:hover, .sidebar-command:hover { border-color: color-mix(in srgb, var(--color-primary) 55%, transparent); background: var(--shell-hover); }
+.icon-button:hover { color: var(--color-primary); background: var(--shell-hover); }
+.focus-mode-toggle { color: var(--color-primary); }
+
+/* Content: blue hairline under page titles, blue links, stronger focus and selection. */
+.app-main :where(h1, h2, h3) { color: var(--color-text); }
+.app-main :where(a:not([class])) { color: var(--color-primary); }
+.app-main :where(a:not([class])):hover { color: var(--color-primary-hover); }
+.app-main :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+.app-main :where(table thead th) { border-bottom-color: color-mix(in srgb, var(--color-primary) 30%, var(--color-border)); }
+::selection { background: color-mix(in srgb, var(--color-primary) 38%, transparent); color: #ffffff; }

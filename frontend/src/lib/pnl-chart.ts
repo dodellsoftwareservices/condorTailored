@@ -12,7 +12,7 @@ import { PNL_HIDDEN_SERIES_KEY } from "@/lib/sessionState";
  * theme-driven (getThemeColors / pnlColor), so only the three fixed series live here.
  */
 export const PNL_SERIES_COLORS = {
-  unrealized: "#f59e0b",
+  unrealized: "#d779a5",
   volume: "#3b82f6",
   position: "#a78bfa",
 } as const;

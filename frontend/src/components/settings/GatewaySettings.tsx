@@ -207,7 +207,7 @@ function NetworkConfigEditor({ server, networkId }: { server: string; networkId:
   );
 }
 
-function GatewayNetworks({ server, running }: { server: string; running: boolean }) {
+function GatewayNetworks({ server, running, statusKnown }: { server: string; running: boolean; statusKnown: boolean }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -236,7 +236,9 @@ function GatewayNetworks({ server, running }: { server: string; running: boolean
         <div className="border-t border-[var(--color-border)] p-3 space-y-3">
           {!running ? (
             <p className="text-xs text-[var(--color-text-muted)]">
-              Start the Gateway to view and edit network configuration.
+              {statusKnown
+                ? "Start the Gateway to view and edit network configuration."
+                : "Gateway status is unavailable. Retry the status check."}
             </p>
           ) : isLoading ? (
             <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
@@ -332,12 +334,15 @@ export function GatewaySettings() {
     }
   }, [activePull?.status, isPulling, server, qc]);
 
-  const { data: status, isLoading } = useQuery({
+  const { data: status, isLoading, error: statusError, isFetching: fetchingStatus, refetch: retryStatus } = useQuery({
     queryKey: ["gateway-status", server],
     queryFn: () => api.getGatewayStatus(server!),
     enabled: !!server,
     refetchInterval: 10000,
+    retry: false,
   });
+  const statusKnown = !!status && !statusError && !isLoading;
+  const running = statusKnown && status.running;
 
   // The server invalidates its own VENUES cache the moment Gateway is first
   // observed running again (CORR-614), but this browser's own `["venues",
@@ -347,11 +352,11 @@ export function GatewaySettings() {
   // missing for up to 5 more minutes after Gateway comes back up.
   const wasRunningRef = useRef<boolean | undefined>(undefined);
   useEffect(() => {
-    if (status?.running && wasRunningRef.current === false) {
+    if (running && wasRunningRef.current === false) {
       qc.invalidateQueries({ queryKey: venuesQueryKey(server) });
     }
-    wasRunningRef.current = status?.running;
-  }, [status?.running, server, qc]);
+    wasRunningRef.current = running;
+  }, [running, server, qc]);
 
   const { data: logsData, isFetching: fetchingLogs } = useQuery({
     queryKey: ["gateway-logs", server],
@@ -396,7 +401,6 @@ export function GatewaySettings() {
     );
   }
 
-  const running = status?.running ?? false;
   const pulling = pullMut.isPending || isPulling;
 
   return (
@@ -416,7 +420,7 @@ export function GatewaySettings() {
             />
             <div>
               <span className="text-sm font-medium text-[var(--color-text)]">
-                Gateway {isLoading ? "..." : running ? "Running" : "Stopped"}
+                Gateway {isLoading ? "..." : !statusKnown ? "Status unavailable" : running ? "Running" : "Stopped"}
               </span>
               <p className="text-xs text-[var(--color-text-muted)]">
                 Server: {server}
@@ -425,7 +429,7 @@ export function GatewaySettings() {
           </div>
 
           <div className="flex items-center gap-2">
-            {running ? (
+            {statusKnown && (running ? (
               <>
                 <button
                   onClick={() => restartMut.mutate()}
@@ -471,9 +475,24 @@ export function GatewaySettings() {
               >
                 <Play className="h-3 w-3" /> Deploy
               </button>
-            )}
+            ))}
           </div>
         </div>
+
+        {statusError && (
+          <div className="mt-3 space-y-2">
+            <p role="alert" className="text-xs text-[var(--color-red)]">{statusError.message}</p>
+            <button
+              type="button"
+              onClick={() => { void retryStatus(); }}
+              disabled={fetchingStatus}
+              className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text)] disabled:opacity-50"
+            >
+              {fetchingStatus && <Loader2 className="h-3 w-3 animate-spin" />}
+              Retry status check
+            </button>
+          </div>
+        )}
 
         {/* Container details */}
         {running && (status?.image || status?.created_at) && (
@@ -624,7 +643,7 @@ export function GatewaySettings() {
       </div>
 
       {/* Deploy form */}
-      {showDeploy && !running && (
+      {showDeploy && statusKnown && !running && (
         <div className="rounded-lg border border-[var(--color-primary)]/30 bg-[var(--color-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Deploy Gateway</h3>
           <div className="space-y-3">
@@ -698,7 +717,7 @@ export function GatewaySettings() {
       )}
 
       {/* Networks & RPC */}
-      <GatewayNetworks server={server} running={running} />
+      <GatewayNetworks server={server} running={running} statusKnown={statusKnown} />
 
       {/* Logs */}
       <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">

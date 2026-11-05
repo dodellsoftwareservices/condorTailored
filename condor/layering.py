@@ -118,7 +118,7 @@ def stock_delete_error(item: str, *, mute_kind: str = "") -> str:
     applies; left empty the message still refuses but offers only the edit.
     """
     base = (
-        f"'{item}' ships with Condor and cannot be deleted — an update would "
+        f"'{item}' ships with Griffin and cannot be deleted — an update would "
         "bring it straight back."
     )
     if mute_kind:

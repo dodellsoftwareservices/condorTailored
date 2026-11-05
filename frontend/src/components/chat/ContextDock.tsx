@@ -15,6 +15,7 @@ import { WORKSPACE_BAR } from "@/components/chat/workspaceBar";
 import type { Delegation } from "@/lib/api";
 import { inScope, resolveRoutine, type RoutineScope } from "@/lib/routineUtils";
 import { DOCK_WIDTH_KEY } from "@/lib/sessionState";
+import { getLayoutViewport } from "@/lib/layout-scale";
 
 const DEFAULT_WIDTH = 300;
 /** Narrower than this and the rows are ellipses; the column stops being readable. */
@@ -220,7 +221,7 @@ export const ContextDock = memo(function ContextDock({
             // a window that shrinks under the dock must not squeeze the chat away,
             // and clamping here leaves the width the reader chose on record for
             // when the room comes back.
-            maxWidth: `calc(100vw - ${MIN_CHAT_PX}px)`,
+            maxWidth: `calc(var(--app-viewport-width) - ${MIN_CHAT_PX}px)`,
           }}
           className="absolute inset-y-0 right-0 z-30 flex border-l border-[var(--color-border)] bg-[var(--color-bg)] xl:relative xl:z-auto"
         >
@@ -228,7 +229,7 @@ export const ContextDock = memo(function ContextDock({
             width={width}
             onWidth={setWidth}
             min={MIN_WIDTH}
-            max={() => Math.max(MIN_WIDTH, window.innerWidth - MIN_CHAT_PX)}
+            max={() => Math.max(MIN_WIDTH, getLayoutViewport().width - MIN_CHAT_PX)}
             reset={DEFAULT_WIDTH}
             label="Resize dock"
           />

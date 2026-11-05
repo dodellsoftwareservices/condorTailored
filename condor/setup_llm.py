@@ -325,19 +325,29 @@ def _install_bridge(base: str, say=print) -> bool:
 def _upgrade_bridge(state: Readiness, say=print) -> bool:
     """Run :attr:`Readiness.upgrade` for an outdated bridge. ``False`` if none or it failed.
 
-    The line is the one that row's "outdated" detail already showed — several
-    commands joined with ``&&``, each shlex-quoted — so it runs through a shell.
+    The line is the one that row's "outdated" detail already showed — one or
+    more shlex-quoted commands joined with literal " && " (how
+    ``readiness.outdated_bridge`` builds ``fix``). Run as a list of argument
+    lists, one ``subprocess.run`` per step, rather than the whole line through
+    a shell: nothing here is attacker input (the commands are built from a
+    fixed npm path and fixed package names), but a shell has no job to do that
+    splitting on the one separator this string is ever built with doesn't
+    already cover, and a malformed quote in a future step then raises instead
+    of being silently reinterpreted.
     """
     if not state.upgrade:
         return False
     say(f"\n  → {state.upgrade}")
     try:
-        result = subprocess.run(state.upgrade, shell=True)
+        for step in state.upgrade.split(" && "):
+            result = subprocess.run(shlex.split(step))
+            if result.returncode != 0:
+                say(
+                    f"  ✗ Upgrade failed (exit {result.returncode}) — try `{step}` manually."
+                )
+                return False
     except (OSError, subprocess.SubprocessError) as e:
         say(f"  ✗ Upgrade failed: {e}")
-        return False
-    if result.returncode != 0:
-        say(f"  ✗ Upgrade failed (exit {result.returncode}) — try it manually.")
         return False
     say("  ✓ Upgraded.")
     return True

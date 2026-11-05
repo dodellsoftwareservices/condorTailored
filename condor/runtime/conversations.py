@@ -26,6 +26,7 @@ the user cannot predict.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -34,7 +35,7 @@ import shutil
 import time
 import uuid
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from itertools import chain, islice
 from pathlib import Path
 
@@ -96,6 +97,12 @@ _TAIL_BLOCK_BYTES = 64 * 1024
 TRANSCRIPT_MAX_BYTES = int(
     os.environ.get("CONDOR_TRANSCRIPT_MAX_BYTES", "2097152") or 2097152
 )
+#: How many stale conversations an age-based sweep deletes before stopping for
+#: the tick — bounded for the same reason reflection's own sweep bounds
+#: itself (PER_TICK): a first run on a never-pruned install could otherwise
+#: find thousands of eligible directories and do them all in one blocking
+#: ``asyncio.to_thread`` call.
+CONVERSATION_PRUNE_PER_TICK = 200
 TRANSCRIPT_KEEP_BYTES = int(
     os.environ.get("CONDOR_TRANSCRIPT_KEEP_BYTES", "1048576") or 1048576
 )
@@ -875,6 +882,151 @@ def delete_conversation(user_id: int, conv_id: str) -> bool:
         return False
     shutil.rmtree(conv_dir, ignore_errors=True)
     return not conv_dir.exists()
+
+
+# ── Retention ──
+#
+# ``list_conversations``'s own docstring says it plainly: "the store is never
+# pruned, so N grows for the life of the install" (system review 2026-10-31,
+# finding #23). Unlike the transcript-byte retention above, which only ever
+# *moves* turns to a sidecar, this is the one path that can delete a whole
+# conversation outright — and "the chat is gone" is exactly the failure mode
+# that policy was written to avoid (see its own comment). So this is off
+# unless an operator explicitly turns it on: a stale-but-real chat is kept
+# forever by default, the same choice the transcript archive already makes,
+# just stated as "no default age" instead of "never delete".
+#
+# Same shape as condor.run_history_store's payload retention — age off a
+# domain timestamp (here, ``updated_at``; there, the run's stop time), not
+# file mtime, and ``0`` disables — except index/payload has no equivalent
+# split here: a conversation's "cheap durable fact" and its "expensive
+# content" are the same file, so retiring one retires both.
+_CONVERSATION_PRUNE_INTERVAL = timedelta(days=1)
+_last_conversation_prune: datetime | None = None
+
+
+def conversation_retention_days() -> int:
+    """Conversation retention in days; ``0`` (the default) never deletes one.
+
+    Honours ``CONDOR_CONVERSATION_RETENTION_DAYS`` in the process environment.
+    Changes to the .env file require a restart to reload that environment.
+    """
+    raw = os.environ.get("CONDOR_CONVERSATION_RETENTION_DAYS")
+    if raw is None or raw.strip() == "":
+        return 0
+    try:
+        return max(0, int(float(raw)))
+    except ValueError:
+        log.warning("Ignoring unreadable CONDOR_CONVERSATION_RETENTION_DAYS=%r", raw)
+        return 0
+
+
+def prune_stale_conversations(
+    max_age_days: int | None = None, *, now: datetime | None = None
+) -> int:
+    """Delete conversations untouched for ``max_age_days``. Returns how many.
+
+    ``max_age_days=None`` reads :func:`conversation_retention_days`, whose
+    own default (0) makes this a no-op — see the module note above on why
+    that default stays off rather than mirroring run_history_store's 60 days.
+    Aged on ``updated_at`` (the conversation's own last-activity fact, which
+    ``write_status`` stamps on every turn), not file mtime, for the same
+    reason run_history_store ages on a run's stop time: a conversation nobody
+    has opened in a year is a year stale however recently its directory was
+    last statted. Capped at :data:`CONVERSATION_PRUNE_PER_TICK` per call so a
+    first run on a long-never-pruned install cannot block on thousands of
+    deletions at once; the rest wait for the next tick.
+    """
+    max_age = conversation_retention_days() if max_age_days is None else max_age_days
+    if max_age <= 0:
+        return 0
+
+    now = _utcnow() if now is None else now
+    cutoff = now - timedelta(days=max_age)
+
+    from condor import paths
+
+    deleted = 0
+    for user_id_str in paths.iter_user_ids():
+        if deleted >= CONVERSATION_PRUNE_PER_TICK:
+            break
+        try:
+            user_id = int(user_id_str)
+        except ValueError:
+            continue
+        for meta in list_conversations(user_id, limit=0):
+            if meta.updated_at >= cutoff:
+                continue
+            if delete_conversation(user_id, meta.id):
+                deleted += 1
+            if deleted >= CONVERSATION_PRUNE_PER_TICK:
+                break
+    if deleted:
+        log.info("Pruned %d conversation(s) untouched for over %dd", deleted, max_age)
+    return deleted
+
+
+def maybe_prune_stale_conversations(now: datetime | None = None) -> int:
+    """Run :func:`prune_stale_conversations` at most once a day.
+
+    The gate a caller on a tight loop (a per-message hook, a sweep tick)
+    needs so the directory walk this does is not paid on every call — same
+    shape as run_history_store's ``_maybe_prune``, except the "last ran" mark
+    is an in-memory module global rather than a persisted one: there is no
+    shared index file here to carry it, and re-checking once more after a
+    restart costs one walk, not a correctness problem.
+    """
+    global _last_conversation_prune
+    now = _utcnow() if now is None else now
+    if (
+        _last_conversation_prune is not None
+        and now - _last_conversation_prune < _CONVERSATION_PRUNE_INTERVAL
+    ):
+        return 0
+    _last_conversation_prune = now
+    try:
+        return prune_stale_conversations(now=now)
+    except Exception:  # noqa: BLE001 - a prune sweep must never break a caller
+        log.warning("Conversation prune sweep failed", exc_info=True)
+        return 0
+
+
+_CONVERSATION_PRUNE_JOB = "conversation_prune"
+
+
+async def _conversation_prune_job(context) -> None:  # pragma: no cover - PTB plumbing
+    """Off the event loop: the walk below is blocking directory I/O, the same
+    reason reflection's own sweep (this job's neighbour, registered beside
+    it) moves its listing to a thread rather than running it inline."""
+    try:
+        await asyncio.to_thread(maybe_prune_stale_conversations)
+    except Exception:  # noqa: BLE001 - a job failure must never take the bot down
+        log.debug("Conversation prune job failed", exc_info=True)
+
+
+def register_jobs(application) -> None:
+    """Register the age-based prune sweep beside the reflection sweep.
+
+    Registered unconditionally and free on an install that has not opted in:
+    ``maybe_prune_stale_conversations`` reads :func:`conversation_retention_days`
+    on every tick, which is 0 (never prune) unless an operator explicitly set
+    ``CONDOR_CONVERSATION_RETENTION_DAYS``. The job only ever does real work
+    on an install that asked for it.
+    """
+    try:
+        queue = getattr(application, "job_queue", None)
+        if queue is None:
+            return
+        for job in queue.get_jobs_by_name(_CONVERSATION_PRUNE_JOB):
+            job.schedule_removal()
+        queue.run_repeating(
+            _conversation_prune_job,
+            interval=_CONVERSATION_PRUNE_INTERVAL.total_seconds(),
+            first=600,
+            name=_CONVERSATION_PRUNE_JOB,
+        )
+    except Exception:  # noqa: BLE001
+        log.debug("Could not register the conversation prune job", exc_info=True)
 
 
 # ── Replay ──

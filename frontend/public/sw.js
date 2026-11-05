@@ -26,7 +26,7 @@ self.addEventListener("push", (event) => {
     payload = { body: event.data ? event.data.text() : "" };
   }
 
-  const title = payload.title || "Condor";
+  const title = payload.title || "Griffin";
   event.waitUntil(
     self.registration.showNotification(title, {
       body: payload.body || "",

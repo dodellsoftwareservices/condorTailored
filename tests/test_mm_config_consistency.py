@@ -124,7 +124,7 @@ def test_the_agent_md_description_is_accurate():
 # ── MM-5: bots are deployed inside the namespace ─────────────────────────────
 
 
-@pytest.mark.parametrize("loop", ["pmm_mister_operator", "hip_3_mm_operator"])
+@pytest.mark.parametrize("loop", ["pmm_mister_operator"])
 def test_both_operator_loops_run_in_controller_mode(loop):
     """They deploy bots; without this the ledger owns nothing they deploy."""
     front = yaml.safe_load((MM / f"loops/{loop}/loop.md").read_text().split("---")[1])
@@ -132,7 +132,7 @@ def test_both_operator_loops_run_in_controller_mode(loop):
     assert front["default_config"]["bot_mode"] == "bot"
 
 
-@pytest.mark.parametrize("loop", ["pmm_mister_operator", "hip_3_mm_operator"])
+@pytest.mark.parametrize("loop", ["pmm_mister_operator"])
 def test_the_derived_name_is_the_session_namespace(loop):
     from condor.agents.ownership import bot_namespace, resolve_bot_name
 
@@ -238,7 +238,10 @@ def test_the_playbook_states_the_order():
 def test_the_agents_routines_are_what_the_skill_can_run():
     shipped = {p.stem for p in (MM / "routines").glob("*.py")}
 
-    assert shipped == {"mm_dashboard", "market_analyzer", "hip3_market_scanner"}
+    assert shipped == {
+        "mm_dashboard",
+        "market_analyzer",
+    }  # hip3_market_scanner removed: venue region-blocked
     assert "mm_bot_report" not in shipped
 
 

@@ -1,6 +1,6 @@
 ---
 name: routine_cookbook
-description: The single reference for writing Condor routines — anatomy, the create → test → fix loop, fetching Hummingbot data, parallel calls, reports/charts, continuous loops, and candlestick charts. Routes to a companion file per topic.
+description: The single reference for writing Griffin routines — anatomy, the create → test → fix loop, fetching Hummingbot data, parallel calls, reports/charts, continuous loops, and candlestick charts. Routes to a companion file per topic.
 when_to_use: Before implementing or debugging ANY routine. Read this first, then pull the specific companion file(s) for what your routine actually does (data, async, reports, continuous, charts).
 source: chat
 ---
@@ -31,7 +31,7 @@ price monitor with a live dashboard, for example, reads `hummingbot_client.md`
 
 ## First, ask what already exists
 
-Before writing a line, find out what Condor already has. The index is generated
+Before writing a line, find out what Griffin already has. The index is generated
 from the code, so it cannot be out of date, and it costs nothing until you read
 it:
 
@@ -89,7 +89,7 @@ module, and `condor.primitives` to find the rest), returns its `print` output an
 its `result`, and hands you the traceback to fix when it fails. No file, no
 `Config` class, no library entry.
 
-**Technical analysis: use `pandas_ta`, never hand-rolled math.** Condor pins the
+**Technical analysis: use `pandas_ta`, never hand-rolled math.** Griffin pins the
 same version the hummingbot-api image runs (`pandas-ta>=0.4.71b` →
 `0.4.71b0`), so an RSI, EMA, ATR, MACD or Bollinger band computed in a routine
 is bit-for-bit the one a Hummingbot controller or a backtest computes. Writing
@@ -148,7 +148,7 @@ The `Config` docstring is the UI description. `CATEGORY` groups it in the catalo
 
 A routine's **definition is public to the whole install**: its name, its
 docstring, every field default and description, and its full source are readable
-by every approved user of this Condor — the Routines page, the MCP schema and
+by every approved user of this Griffin — the Routines page, the MCP schema and
 `GET /routines/{name}/source` all serve them unscoped. An API key typed as a
 `Field(default=...)` is therefore published the moment the file lands, with no
 review step in between.

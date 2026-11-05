@@ -210,7 +210,7 @@ describe("ChatBubble on an agent's page", () => {
     expect(container.textContent).not.toContain("a chat with someone else");
   });
 
-  it("matches an unbound chat on Condor's own page", () => {
+  it("matches an unbound chat on Griffin's own page", () => {
     // `/agents/condor` is the registry's spelling of a conversation the chat
     // binds by binding nobody, so the live slot carries `agent_slug: ""`.
     // A naive `slug !== ""` guard would skip this route entirely.

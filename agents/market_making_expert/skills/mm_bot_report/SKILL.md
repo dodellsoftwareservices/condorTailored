@@ -20,7 +20,7 @@ manage_routines(action="run", name="mm_dashboard", config={})
 ```
 
 > This skill named a `mm_bot_report` routine that does not exist (MM-8). The MM agent
-> ships three routines — `mm_dashboard`, `market_analyzer` and `hip3_market_scanner` —
+> ships two routines — `mm_dashboard` and `market_analyzer` —
 > and `mm_dashboard` is the one that answers "how is the bot doing".
 
 **What it returns:**

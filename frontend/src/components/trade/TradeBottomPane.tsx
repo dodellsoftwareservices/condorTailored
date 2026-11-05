@@ -19,6 +19,7 @@ import {
 import { stopKeepCopy } from "@/lib/executorStopCopy";
 import { executorsQuery } from "@/lib/queryClient";
 import { TRADE_BOTTOM_PANE_KEY } from "@/lib/sessionState";
+import { getLayoutViewport, toLayoutRect } from "@/lib/layout-scale";
 
 interface TradeBottomPaneProps {
   executors: ExecutorInfo[];
@@ -87,14 +88,15 @@ function ExecutorTooltip({
   const config = executor.config || {};
 
   const active = isExecutorActive(executor.status);
+  const rect = toLayoutRect(anchorRect);
 
   // Position tooltip using viewport-fixed coords (rendered via portal)
   const tooltipHeight = 180; // approximate max height
   // If tooltip would go above viewport top, flip it below the row
-  const flipBelow = anchorRect.top - tooltipHeight < 0;
+  const flipBelow = rect.top - tooltipHeight < 0;
   const left = Math.min(
-    Math.max(anchorRect.left + anchorRect.width / 2 - 120, 8),
-    window.innerWidth - 260,
+    Math.max(rect.left + rect.width / 2 - 120, 8),
+    getLayoutViewport().width - 260,
   );
 
   const slPct = Number(config.stop_loss);
@@ -106,7 +108,7 @@ function ExecutorTooltip({
     <div
       className="fixed z-[9999] pointer-events-none"
       style={{
-        top: flipBelow ? anchorRect.bottom + 8 : anchorRect.top - 8,
+        top: flipBelow ? rect.bottom + 8 : rect.top - 8,
         left,
         transform: flipBelow ? undefined : "translateY(-100%)",
       }}

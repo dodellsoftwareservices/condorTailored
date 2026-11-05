@@ -96,7 +96,7 @@ function TurnPreview({ turn }: { turn: SharePreview["turns"][number] }) {
     turn.role === "user"
       ? "You"
       : turn.role === "assistant"
-        ? "Condor"
+        ? "Griffin"
         : "System";
   const others = otherFields(turn);
   return (
@@ -246,7 +246,7 @@ export function ShareConversation({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `condor-conversation-${conversationId}.json`;
+    link.download = `griffin-conversation-${conversationId}.json`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -263,7 +263,7 @@ export function ShareConversation({
         <div className="border-b border-[var(--color-border)] p-5">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--color-text)]">
             <Share2 className="h-4 w-4" />
-            Share this chat with Condor
+            Share this chat with Griffin
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">
             Real conversations are what make the agents better. Below is exactly

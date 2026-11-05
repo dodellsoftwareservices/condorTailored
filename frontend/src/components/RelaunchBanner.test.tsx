@@ -144,7 +144,7 @@ describe("a seat that may not restart", () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(reload).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("cannot restart Condor");
+    expect(container.textContent).toContain("cannot restart Griffin");
   });
 
   it("offers no Restart now button, which would be refused the same way", async () => {

@@ -30,21 +30,25 @@ export function PersonDetail({
   onSetRole,
   onSetServerAccess,
   onSetCodeRun,
+  onResetTwoFactor,
   rolePending,
   pendingServer,
   roleError,
   accessError,
   codeRunError,
+  resetTwoFactorError,
 }: {
   person: AdminPerson;
   onSetRole: (role: RoleTarget) => void;
   onSetServerAccess: (server: string, permission: string) => void;
   onSetCodeRun: (granted: boolean) => void;
+  onResetTwoFactor: () => void;
   rolePending: boolean;
   pendingServer: string | null;
   roleError?: string;
   accessError?: string;
   codeRunError?: string;
+  resetTwoFactorError?: string;
 }) {
   const currentState: RoleTarget | null = person.is_admin
     ? null
@@ -163,6 +167,33 @@ export function PersonDetail({
           </label>
           {codeRunError && (
             <p className="mt-1.5 text-xs text-[var(--color-red)]">{codeRunError}</p>
+          )}
+        </section>
+      )}
+
+      {/* Security */}
+      {person.known && !person.is_admin && person.two_factor_enabled && (
+        <section>
+          <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+            Security
+          </h4>
+          <div className="flex items-start gap-2">
+            <button
+              type="button"
+              onClick={onResetTwoFactor}
+              className="shrink-0 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-red)] transition-colors hover:bg-[var(--color-surface-hover)]"
+            >
+              Reset 2FA
+            </button>
+            <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
+              For when they've lost both their authenticator and their
+              recovery codes — the only recovery path for that lockout.
+            </p>
+          </div>
+          {resetTwoFactorError && (
+            <p className="mt-1.5 text-xs text-[var(--color-red)]">
+              {resetTwoFactorError}
+            </p>
           )}
         </section>
       )}

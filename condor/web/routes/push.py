@@ -140,7 +140,7 @@ def _payload(notification: Notification) -> str:
     return json.dumps(
         {
             "id": notification.id,
-            "title": notification.title or "Condor",
+            "title": notification.title or "Griffin",
             "body": text,
             "link": notification.link or "/",
             "kind": notification.kind,

@@ -1,0 +1,31 @@
+{
+  "_about": "Kraken Pro spot fee tiers by rolling 30-day USD volume. Percentages, not fractions. Edit this file when Kraken changes its schedule; the simulator reads it at start.",
+  "source": "https://www.kraken.com/features/fee-schedule, fetched 2026-11-03",
+  "fetched": "2026-11-03",
+  "fee_currency": "quote",
+  "verification": "Tiers 1-2 corroborated by a second source (Datawallet, Aug 2026). Tiers 3+ come from the Kraken page alone and a third-party source disagreed on tier 3 (0.22/0.38 here). Confirm against your own account's fee page before trusting higher tiers.",
+  "spot_crypto": [
+    {"min_volume_usd": 0,        "maker": "0.40", "taker": "0.80", "verified": true},
+    {"min_volume_usd": 2500,     "maker": "0.30", "taker": "0.60", "verified": true},
+    {"min_volume_usd": 10000,    "maker": "0.22", "taker": "0.38", "verified": false},
+    {"min_volume_usd": 25000,    "maker": "0.20", "taker": "0.35", "verified": false},
+    {"min_volume_usd": 50000,    "maker": "0.15", "taker": "0.30", "verified": false},
+    {"min_volume_usd": 100000,   "maker": "0.12", "taker": "0.25", "verified": false},
+    {"min_volume_usd": 250000,   "maker": "0.10", "taker": "0.22", "verified": false},
+    {"min_volume_usd": 500000,   "maker": "0.08", "taker": "0.20", "verified": false},
+    {"min_volume_usd": 1000000,  "maker": "0.06", "taker": "0.18", "verified": false},
+    {"min_volume_usd": 2500000,  "maker": "0.04", "taker": "0.15", "verified": false},
+    {"min_volume_usd": 5000000,  "maker": "0.02", "taker": "0.12", "verified": false},
+    {"min_volume_usd": 10000000, "maker": "0.00", "taker": "0.10", "verified": false}
+  ],
+  "stablecoin_fx": [
+    {"min_volume_usd": 0,        "maker": "0.20", "taker": "0.20", "verified": false},
+    {"min_volume_usd": 50000,    "maker": "0.16", "taker": "0.16", "verified": false},
+    {"min_volume_usd": 100000,   "maker": "0.12", "taker": "0.12", "verified": false},
+    {"min_volume_usd": 250000,   "maker": "0.08", "taker": "0.08", "verified": false},
+    {"min_volume_usd": 500000,   "maker": "0.04", "taker": "0.04", "verified": false},
+    {"min_volume_usd": 1000000,  "maker": "0.02", "taker": "0.02", "verified": false},
+    {"min_volume_usd": 10000000, "maker": "0.00", "taker": "0.01", "verified": false}
+  ],
+  "stablecoin_fx_bases": ["USDT", "USDC", "DAI", "PYUSD", "USDG", "EUR", "GBP", "AUD", "CAD", "CHF", "JPY"]
+}

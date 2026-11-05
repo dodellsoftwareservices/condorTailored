@@ -36,6 +36,11 @@ DEFAULT_TOKENS = {
     },
 }
 
+# Binance, deliberately: ORCA/MET/RAY are long-tail Solana-DEX governance
+# tokens that a newer, majors-only perp DEX (e.g. Lighter, dYdX) won't list,
+# so this can't follow the lighter_perpetual default swap made elsewhere
+# (system review 2026-10-31, finding #10) — it stays 451-blocked on a US IP
+# until there's an alternative venue that actually lists these pairs.
 CONNECTOR = "binance"
 DEFILLAMA_BASE = "https://api.llama.fi/summary/fees"
 
@@ -133,7 +138,9 @@ async def _fetch_candles(
     return df
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     # Parse requested tokens
     requested = [t.strip().upper() for t in config.tokens.split(",") if t.strip()]
     active_tokens = {
@@ -147,7 +154,9 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
     price_data = {}
 
     # Step 1: Fetch GeckoTerminal token info + DefiLlama fees (parallel, aiohttp)
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=15)
+    ) as session:
         # Token info from GeckoTerminal. No hand-rolled sleep between calls: the
         # shared gate paces these against every other caller in the process,
         # which a local sleep cannot.
@@ -203,7 +212,9 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
             logger.warning(f"Failed to fetch candles for {name}: {e}")
 
     if not price_data and not fee_data:
-        return "Failed to fetch data for all tokens. Try again shortly."
+        return RoutineResult(
+            text="Failed to fetch data for all tokens. Try again shortly.", failed=True
+        )
 
     # Build summary
     lines = ["*Market Cap Comparison — Solana DEX Tokens*", ""]

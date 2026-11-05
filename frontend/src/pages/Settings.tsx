@@ -10,6 +10,7 @@ import {
   ServerCog,
   Shield,
   ShieldCheck,
+  ShieldHalf,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { ApiServerSettings } from "@/components/settings/ApiServerSettings";
 import { CustomProvidersSettings } from "@/components/settings/CustomProvidersSettings";
 import { GatewaySettings } from "@/components/settings/GatewaySettings";
 import { NotificationsSettings } from "@/components/settings/NotificationsSettings";
+import { SecuritySettings } from "@/components/settings/SecuritySettings";
 import { ServersSettings } from "@/components/settings/ServersSettings";
 import { SharingSettings } from "@/components/settings/SharingSettings";
 import { TelemetrySettings } from "@/components/settings/TelemetrySettings";
@@ -41,6 +43,7 @@ type TabKey =
   | "voice"
   | "notifications"
   | "privacy"
+  | "security"
   | "admin"
   | "updates";
 
@@ -71,7 +74,7 @@ function buildGroups(server: string | null, isAdmin: boolean): TabGroup[] {
       ],
     },
     {
-      label: "Condor",
+      label: "Griffin",
       tabs: [
         { key: "servers", label: "Servers", icon: Server },
         { key: "agents", label: "Agents", icon: Brain },
@@ -84,6 +87,7 @@ function buildGroups(server: string | null, isAdmin: boolean): TabGroup[] {
       tabs: [
         { key: "notifications", label: "Notifications", icon: Bell },
         { key: "privacy", label: "Privacy", icon: Shield },
+        { key: "security", label: "Security", icon: ShieldHalf },
       ],
     },
   ];
@@ -220,6 +224,7 @@ export function Settings() {
               </div>
             </div>
           )}
+          {tab === "security" && <SecuritySettings />}
           {tab === "admin" && <AdminSettings />}
           {tab === "updates" && <UpdatesSettings />}
           {deniedTab && <AdminOnlyNotice tab={deniedTab} />}

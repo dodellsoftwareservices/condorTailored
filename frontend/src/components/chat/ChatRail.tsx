@@ -177,12 +177,12 @@ export const ChatRail = memo(function ChatRail({
           Agents
         </div>
         <RailRow
-          label={condor?.name || "Condor"}
+          label={condor?.name || "Griffin"}
           icon={<MessageSquare className="h-3 w-3 shrink-0" />}
           active={hasSession && !activeSlug}
           title={condor?.description || "General trading assistant"}
           onClick={() => onTalk("", null)}
-          newTitle={`New chat with ${condor?.name || "Condor"}`}
+          newTitle={`New chat with ${condor?.name || "Griffin"}`}
           onNew={() => onTalk("", null, true)}
         />
         {specialists.map((agent) => (

@@ -259,7 +259,7 @@ export function MarketBrowser({
       role="dialog"
       aria-label="Browse markets"
       onKeyDown={handleKeyDown}
-      className="absolute left-0 top-0 z-40 flex w-full max-w-3xl max-h-[min(34rem,70vh)] rounded-br-lg border-b border-r border-[var(--color-border)] bg-[var(--color-bg)] shadow-lg"
+      className="absolute left-0 top-0 z-40 flex w-full max-w-3xl max-h-[min(34rem,calc(var(--app-viewport-height)*0.7))] rounded-br-lg border-b border-r border-[var(--color-border)] bg-[var(--color-bg)] shadow-lg"
     >
       {/* The venue axis. Re-lists the table; never moves the chart. */}
       <VenueRail

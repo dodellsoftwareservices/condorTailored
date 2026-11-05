@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatCurrencyPnl } from "@/lib/formatters";
 import type { MetricEntry } from "@/lib/parse-agent";
 import { getThemeColors } from "@/lib/theme-colors";
+import { getLayoutScale, toLayoutRect } from "@/lib/layout-scale";
 
 interface PnlDataPoint {
   time: number; // unix seconds
@@ -36,18 +37,20 @@ export function AgentPnlChart({ data, height = 180, title, bare = false }: Agent
       chartModuleRef.current = mod;
 
       const colors = getThemeColors();
+      const scale = getLayoutScale();
       const chart = mod.createChart(containerRef.current, {
         autoSize: true,
         layout: {
           background: { type: mod.ColorType.Solid, color: colors.bg },
           textColor: colors.text,
+          fontSize: 12 * scale,
         },
         grid: {
           vertLines: { color: colors.grid },
           horzLines: { color: colors.grid },
         },
         crosshair: { mode: mod.CrosshairMode.Normal },
-        timeScale: { timeVisible: true, secondsVisible: false },
+        timeScale: { timeVisible: true, secondsVisible: false, barSpacing: 6 * scale },
         rightPriceScale: { borderVisible: false },
         localization: {
           priceFormatter: (price: number) => formatCurrencyPnl(price),
@@ -104,11 +107,11 @@ export function AgentPnlChart({ data, height = 180, title, bare = false }: Agent
         `;
         tooltip.style.display = "block";
 
-        const containerRect = containerRef.current.getBoundingClientRect();
-        let left = param.point.x + 16;
-        if (left + 160 > containerRect.width) left = param.point.x - 170;
+        const containerRect = toLayoutRect(containerRef.current.getBoundingClientRect());
+        let left = param.point.x / scale + 16;
+        if (left + 160 > containerRect.width) left = param.point.x / scale - 170;
         tooltip.style.left = `${left}px`;
-        tooltip.style.top = `${Math.max(4, param.point.y - 20)}px`;
+        tooltip.style.top = `${Math.max(4, param.point.y / scale - 20)}px`;
       });
 
     });
@@ -188,8 +191,8 @@ export function AgentPnlChart({ data, height = 180, title, bare = false }: Agent
           <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-text-muted)]">{title}</p>
         </div>
       )}
-      <div style={{ position: "relative" }}>
-        <div ref={containerRef} style={{ height, width: "100%" }} />
+      <div style={{ position: "relative", height }}>
+        <div ref={containerRef} className="chart-canvas-viewport" style={{ position: "absolute", inset: 0 }} />
         <div
           ref={tooltipRef}
           style={{

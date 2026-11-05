@@ -21,8 +21,8 @@ class Config(BaseModel):
     """Side-by-side fundamental comparison of DeFi protocols and/or stock tickers."""
 
     assets: List[str] = Field(
-        default=["uniswap", "COIN", "hyperliquid", "HOOD"],
-        description="DeFi slugs or stock tickers (e.g. ['uniswap', 'COIN', 'hyperliquid', 'HOOD'])",
+        default=["uniswap", "COIN", "jupiter", "HOOD"],
+        description="DeFi slugs or stock tickers (e.g. ['uniswap', 'COIN', 'jupiter', 'HOOD'])",
     )
     asset_types: Dict[str, str] = Field(
         default={},
@@ -123,9 +123,9 @@ def _product_variants(inp: str, protocols: list) -> list:
     """Distinct PRODUCTS under the brand ``inp`` names, by slug.
 
     A brand can carry several products that are not the same instrument:
-    Hyperliquid lists a perps venue, an HLP vault and a spot order book, and
+    DefiLlama lists per-variant rows for one protocol (venue, vault, pool), and
     they have different TVL, different fees and different meaning. Picking the
-    largest is how a request for "hyperliquid" was answered with its vault in
+    the largest is how a request for one protocol was answered with its vault in
     one routine and its spot book in the other (FA-2).
 
     Versions are NOT products: ``uniswap-v2`` and ``uniswap-v3`` are the same
@@ -161,7 +161,7 @@ def _pick_best(candidates: list):
     # Exclude infrastructure categories
     trading = [p for p in candidates if p.get("category") not in _INFRA_CATEGORIES]
     pool = trading if trading else candidates
-    # Prefer the main protocol over vault/pool variants (e.g. prefer hyperliquid over hyperliquid-hlp)
+    # Prefer the main protocol over vault/pool variants (e.g. prefer jupiter over jupiter-perp)
     core = [
         p
         for p in pool
@@ -375,7 +375,7 @@ async def _fetch_defi_row(
     try:
         # A brand with several PRODUCTS is a question, not a default (FA-2).
         # Only when the caller named the brand alone: an explicit slug such as
-        # "hyperliquid-hlp" has already answered it.
+        # "jupiter-perp" has already answered it.
         variants = _product_variants(slug_input, all_protocols)
         # Against ALL protocols, not the collapsed variant list: grouping keeps
         # only the largest of each product, so a caller naming a smaller version

@@ -1,18 +1,9 @@
 type MessageHandler = (channel: string, data: unknown, ts: number) => void;
 type ConnectHandler = () => void;
 
-/**
- * Sentinel subprotocol that marks the JWT-carrying handshake. The token is
- * sent as the second `Sec-WebSocket-Protocol` value instead of in the URL
- * query string, so it never lands in proxy/access logs or browser history.
- * The server echoes back this sentinel (never the token) on accept.
- */
-export const WS_AUTH_SUBPROTOCOL = "condor-jwt";
-
 export class CondorWebSocket {
   private ws: WebSocket | null = null;
   private url: string;
-  private token: string;
   private handlers: Set<MessageHandler> = new Set();
   private connectHandlers: Set<ConnectHandler> = new Set();
   private channels: Set<string> = new Set();
@@ -23,10 +14,9 @@ export class CondorWebSocket {
   /** Increments on each successful reconnect */
   version = 0;
 
-  constructor(token: string) {
+  constructor() {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     this.url = `${proto}//${window.location.host}/api/v1/ws`;
-    this.token = token;
   }
 
   /** Whether the underlying socket is open right now (diagnostics only). */
@@ -80,7 +70,8 @@ export class CondorWebSocket {
   private _connect() {
     if (!this.shouldConnect) return;
 
-    this.ws = new WebSocket(this.url, [WS_AUTH_SUBPROTOCOL, this.token]);
+    // Same-origin WebSockets carry the HttpOnly session cookie automatically.
+    this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
       this.reconnectDelay = 1000;

@@ -1,7 +1,7 @@
 ---
 name: loop_builder
 description: Give YOURSELF a loop — write a tick playbook (a loop) under your own slug, dry-run it, and start it. The shared contract for how a loop is authored, validated and launched; read by any agent that wants to act autonomously instead of only answering what it is handed.
-when_to_use: You are an agent and the user wants you to act on a loop — run every N seconds, watch a condition, report on a schedule, or trade autonomously. Also read this before editing or re-launching a loop you already own. NOT for creating or deleting other agents (that is Condor's agent_builder).
+when_to_use: You are an agent and the user wants you to act on a loop — run every N seconds, watch a condition, report on a schedule, or trade autonomously. Also read this before editing or re-launching a loop you already own. NOT for creating or deleting other agents (that is Griffin's agent_builder).
 created: '2026-08-11T00:00:00Z'
 source: chat
 ---
@@ -17,8 +17,8 @@ the user sets. It lives at `agents/{your_slug}/loops/{loop_slug}/loop.md` and
 it is yours — you author it, under your own slug.
 
 > **Scope.** This is about giving *yourself* a loop. Creating, editing or deleting *other*
-> agents belongs to Condor (`agent_builder`). If the user wants a whole new specialist,
-> say so and let them ask Condor.
+> agents belongs to Griffin (`agent_builder`). If the user wants a whole new specialist,
+> say so and let them ask Griffin.
 
 ## When a loop of your own is worth it
 
@@ -140,4 +140,4 @@ the tick playbook; `manage_loops(action="delete", loop_id=…)` to remove it. St
 - One loop per job — don't overload a tick with unrelated objectives.
 - A loop doesn't have to trade. When it does: risk limits always, dry run always.
 - Show the user the dry-run journal before proposing to go live.
-- Don't write routine code inline — delegate it to a Condor worker.
+- Don't write routine code inline — delegate it to a Griffin worker.

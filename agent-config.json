@@ -1,0 +1,39 @@
+{
+  "$schema": "./agent-config.schema.json",
+  "_about": "Condor agent runtime config, read like Albatross's agent.config.json. Edits apply on the next tick or turn; no restart. Check with: uv run python -m condor.agent_config",
+
+  "model": "openrouter:nvidia/nemotron-3.5-super-vl:free",
+
+  "maxSteps": 1000,
+
+  "approvalPolicy": "never",
+  "alwaysAllow": [],
+
+  "thinking": {
+    "effort": "high",
+    "exclude": false
+  },
+  "openrouterProviderOnly": {
+    "deepseek/deepseek-v4.1-flash-1017": ["wafer/mxfp4"]
+  },
+  "maxOutputTokens": null,
+  "tickTimeoutSec": 900,
+
+  "budget": {
+    "enabled": true,
+    "appliesTo": "all",
+    "_dailyRequestCap": "Sized for the load, not the free tier: the spot desk (hourly), the futures desk (every 15 min) and the free analyst consults come to roughly 1,200-1,700 requests a day. Paid requests are bounded in dollars by monthlyCostCapUsd; free ones cannot reach OpenRouter's own 1,000-a-day free-model limit (analysts are about 430 at most). A cap of 1,000 would have refused the desks late in each UTC day.",
+    "dailyRequestCap": 2500,
+    "reserveRequests": 50,
+    "requestsPerMinute": 18,
+    "perRunRequestCap": 100,
+    "pacing": true,
+    "assumedRequestsPerTick": 8,
+    "_monthlyCostCapUsd": "Hard UTC calendar-month ceiling on paid model spend, in dollars. Paid requests reserve requestCostReserveUsd before they go out, free models are exempt, and a response whose price is unknown is booked at the reserve. Only allowedPaidModels may spend. Each is pinned to one provider (openrouterProviderOnly) and to paidPriceCeilingUsdPerMillion, set just above wafer/mxfp4's price verified 2026-11-05 ($0.16/M in, $0.50/M out); a dearer endpoint fails with 404 instead of overspending. The validator rejects a requestCostReserveUsd below the worst case that ceiling allows. Verified provider spend so far this month is booked in data/llm_budget/spend-baseline.json.",
+    "monthlyCostCapUsd": 30,
+    "requestCostReserveUsd": 0.2,
+    "paidPriceCeilingUsdPerMillion": { "prompt": 0.17, "completion": 0.55 },
+    "paidMaxContextTokens": 1048576,
+    "allowedPaidModels": ["openrouter:deepseek/deepseek-v4.1-flash-1017"]
+  }
+}

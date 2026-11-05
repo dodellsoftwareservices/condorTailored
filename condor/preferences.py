@@ -145,9 +145,13 @@ PORTFOLIO_DAYS_OPTIONS = [1, 3, 7, 14, 30]
 PORTFOLIO_INTERVAL_OPTIONS = ["15m", "1h", "4h", "1d"]
 
 # CLOB trading defaults
+# Was binance_perpetual/BTC-USDT — Binance blocks US IPs (451s), and the user
+# has no exchange keys set up yet, so there's no live-order risk in moving the
+# out-of-the-box default to a US-accessible venue (system review 2026-10-31,
+# finding #10). lighter_perpetual settles in USDC, hence the paired pair change.
 DEFAULT_CLOB_ACCOUNT = "master_account"
-DEFAULT_CLOB_CONNECTOR = "binance_perpetual"
-DEFAULT_CLOB_PAIR = "BTC-USDT"
+DEFAULT_CLOB_CONNECTOR = "lighter_perpetual"
+DEFAULT_CLOB_PAIR = "BTC-USDC"
 DEFAULT_CLOB_ORDER_TYPE = "MARKET"
 DEFAULT_CLOB_SIDE = "BUY"
 DEFAULT_CLOB_POSITION_MODE = "OPEN"

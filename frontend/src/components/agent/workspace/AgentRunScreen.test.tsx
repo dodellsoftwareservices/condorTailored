@@ -512,7 +512,7 @@ describe("a conversation in the Runs tab", () => {
     });
 
     await render("/?open=runs&run=c:7f3a");
-    expect(container.textContent).toContain("before Condor recorded");
+    expect(container.textContent).toContain("before Griffin recorded");
     // Not the ledger's own empty case, which would say it deployed nothing.
     expect(container.querySelector("table")).toBeNull();
   });

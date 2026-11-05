@@ -96,6 +96,13 @@ class RoutineResult:
     Routines can return this instead of a plain string to provide
     structured data for the web dashboard (tables, charts, sections).
     Telegram still uses the `text` field.
+
+    ``failed`` lets a routine report its own handled error as a failure
+    rather than a success: a ``run()`` that catches an exception internally
+    and returns a plain string never raises, so the executor in
+    ``condor/routine_store.py`` would otherwise see a normal return value and
+    record the run (and its ✅) as successful regardless of what the text
+    says (system review 2026-10-31, finding #10).
     """
 
     text: str
@@ -103,6 +110,7 @@ class RoutineResult:
     table_columns: list[str] | None = None
     chart_image: bytes | None = None
     sections: list[dict] | None = field(default=None)
+    failed: bool = False
 
 
 def normalize_result(result) -> RoutineResult:

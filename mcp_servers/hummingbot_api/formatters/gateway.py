@@ -182,7 +182,7 @@ def format_gateway_swap_result(action: str, result: dict[str, Any]) -> str:
         return (
             f"Swap resolve requested for {truncate_address(str(tx_hash))}.\n"
             f"The server's answer: {result.get('result')}\n"
-            f"That answer is the swap's state — Condor recorded nothing of its own."
+            f"That answer is the swap's state — Griffin recorded nothing of its own."
         )
 
     if action == "get_status" and isinstance(result, dict):

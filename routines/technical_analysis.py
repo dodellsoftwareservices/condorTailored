@@ -23,9 +23,9 @@ class Config(BaseModel):
     """Analyze trend, volatility, S/R levels and suggest a grid direction with chart."""
 
     connector_name: str = Field(
-        default="binance_perpetual", description="Exchange connector"
+        default="lighter_perpetual", description="Exchange connector"
     )
-    trading_pair: str = Field(default="BTC-USDT", description="Trading pair")
+    trading_pair: str = Field(default="BTC-USDC", description="Trading pair")
     interval: str = Field(
         default="1m", description="Candle interval: 1m, 5m, 15m, 30m, 1h, 4h, 1d"
     )
@@ -602,11 +602,13 @@ async def _send_photo_http(chat_id: int, buf: io.BytesIO, caption: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     chat_id = context._chat_id if hasattr(context, "_chat_id") else None
     client = await get_client(chat_id, context=context)
     if not client:
-        return "No server available"
+        return RoutineResult(text="No server available", failed=True)
 
     lookback_hours = _parse_lookback(config.lookback)
 
@@ -654,7 +656,7 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
                 max_records=max_records,
             )
         except Exception as e:
-            return f"Failed to fetch candles: {e}"
+            return RoutineResult(text=f"Failed to fetch candles: {e}", failed=True)
 
         records = (
             result

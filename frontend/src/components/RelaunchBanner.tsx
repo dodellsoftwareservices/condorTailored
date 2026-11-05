@@ -163,7 +163,7 @@ function RelaunchStrip({ data }: { data: Relaunch }) {
       <p className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--color-text)]">
         {phase === "counting" && (
           <>
-            <strong className="font-semibold">Condor has been updated.</strong>{" "}
+            <strong className="font-semibold">Griffin has been updated.</strong>{" "}
             <span className="text-[var(--color-text-muted)]">
               Restarting in {left}s to apply it
               {moved ? (
@@ -178,7 +178,7 @@ function RelaunchStrip({ data }: { data: Relaunch }) {
         )}
         {phase === "restarting" && (
           <>
-            <strong className="font-semibold">Restarting Condor…</strong>{" "}
+            <strong className="font-semibold">Restarting Griffin…</strong>{" "}
             <span className="text-[var(--color-text-muted)]">
               This page will reconnect and reload on its own.
             </span>
@@ -186,7 +186,7 @@ function RelaunchStrip({ data }: { data: Relaunch }) {
         )}
         {phase === "stuck" && (
           <>
-            <strong className="font-semibold">Condor has not come back.</strong>{" "}
+            <strong className="font-semibold">Griffin has not come back.</strong>{" "}
             <span className="text-[var(--color-text-muted)]">
               Check the terminal it was started from — if the restart failed, the
               reason is in <span className="font-mono">.condor/restart-failure.log</span>.
@@ -196,7 +196,7 @@ function RelaunchStrip({ data }: { data: Relaunch }) {
         {phase === "denied" && (
           <>
             <strong className="font-semibold">
-              This seat cannot restart Condor.
+              This seat cannot restart Griffin.
             </strong>{" "}
             <span className="text-[var(--color-text-muted)]">
               The update is on disk, but applying it needs the admin role — the
@@ -209,7 +209,7 @@ function RelaunchStrip({ data }: { data: Relaunch }) {
         )}
         {phase === "cancelled" && (
           <>
-            <strong className="font-semibold">Condor has been updated.</strong>{" "}
+            <strong className="font-semibold">Griffin has been updated.</strong>{" "}
             <span className="text-[var(--color-text-muted)]">
               It is still running the code it booted with
               {moved ? (
@@ -259,11 +259,11 @@ function RelaunchStrip({ data }: { data: Relaunch }) {
 
       {showHow && phase === "cancelled" && (
         <p className="w-full text-xs leading-relaxed text-[var(--color-text-muted)]">
-          Restart now restarts Condor in place. You can also run{" "}
+          Restart now restarts Griffin in place. You can also run{" "}
           <code className="rounded bg-[var(--color-surface-hover)] px-1 py-0.5 font-mono text-[11px] text-[var(--color-text)]">
             make restart
           </code>{" "}
-          from the Condor directory. Bots and open positions are untouched;
+          from the Griffin directory. Bots and open positions are untouched;
           continuous routines and agent loops are restored on the way back up.
         </p>
       )}

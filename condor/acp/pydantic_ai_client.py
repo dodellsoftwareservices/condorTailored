@@ -19,6 +19,8 @@ import uuid
 from typing import Any, AsyncIterator, Awaitable, Callable, Iterator
 from urllib.parse import urlparse
 
+from condor.llm.budget import BudgetExhausted
+
 from .client import (
     ACPEvent,
     Heartbeat,
@@ -76,6 +78,14 @@ MCP_TRANSPORT_POLL_SECONDS = 2.0
 # rather than gone. A dead transport answers at once, with an error.
 MCP_PING_TIMEOUT_SECONDS = 5.0
 
+# A long-lived chat session reuses one client across every turn, and each
+# turn's messages are resent in full on every subsequent one — unbounded
+# growth, O(N^2) cumulative resend cost on a paid model (system review
+# 2026-10-31, finding #22). Keeping the most recent turns, dropped whole
+# (never mid tool-call/tool-result), is the plain "keep last N" bound this
+# codebase already uses for other per-turn-growing state.
+MAX_HISTORY_TURNS = 60
+
 
 def _get_server_semaphore(base_url: str) -> asyncio.Semaphore:
     if base_url not in _SERVER_SEMAPHORES:
@@ -110,6 +120,19 @@ def resolve_base_url(model_name: str, base_url: str | None = None) -> str | None
         return base_url
     prefix = model_name.split(":", 1)[0]
     return DEFAULT_BASE_URLS.get(prefix)
+
+
+def serializes_requests(model_name: str) -> bool:
+    """Whether turns against this model must queue behind each other, process-wide.
+
+    Local inference servers (Ollama, LM Studio, a custom endpoint) answer one request
+    at a time, so concurrent turns race to connect and lose. OpenRouter is hosted and
+    handles concurrency fine, and it has a default base URL only so the client knows
+    where to point. Serializing it let one desk's multi-minute tick hold the slot while
+    waiting on a tool, so anything else that needed OpenRouter in the meantime (the
+    analyst panel the desk itself had just called) queued behind it and timed out.
+    """
+    return model_name.split(":", 1)[0] != "openrouter"
 
 
 async def healthcheck_local_backend(
@@ -195,7 +218,57 @@ async def healthcheck_local_backend(
 _NULL_SAFE_MODEL_CLS: Any = None
 
 
-def _make_openai_compat_model(model_id: str, provider: Any) -> Any:
+def _make_openrouter_model(model_id: str, provider: Any, gate=None) -> Any:
+    """Build an OpenRouter model that keeps OpenRouter's billed usage on every reply.
+
+    pydantic-ai's OpenRouter model surfaces the billed ``cost`` in
+    ``provider_details``, which is the only way to price a model its bundled
+    catalog does not know. ``gate``, when given, is awaited before every request
+    (the budget's admission check), exactly as for the OpenAI-compatible model.
+    """
+    from pydantic_ai.models.openrouter import OpenRouterModel
+
+    class GovernedOpenRouterModel(OpenRouterModel):
+        # Set below, per instance; ``None`` = no admission check.
+        _condor_gate: Callable[[], Awaitable[None]] | None = None
+
+        async def _map_messages(self, *args: Any, **kwargs: Any) -> Any:
+            # An assistant turn that is only tool calls is serialised with
+            # ``content: null``, which some providers behind OpenRouter reject with a
+            # 400 on the follow-up request. The OpenAI-compatible model this replaced
+            # coerced it to an empty string; keep doing so.
+            mapped = await super()._map_messages(*args, **kwargs)
+            for msg in mapped:
+                if (
+                    isinstance(msg, dict)
+                    and msg.get("role") == "assistant"
+                    and msg.get("content") is None
+                ):
+                    msg["content"] = ""
+            return mapped
+
+        async def request(self, *args, **kwargs):
+            if self._condor_gate is not None:
+                await self._condor_gate()
+            return await super().request(*args, **kwargs)
+
+        @contextlib.asynccontextmanager
+        async def request_stream(self, *args, **kwargs):
+            if self._condor_gate is not None:
+                await self._condor_gate()
+            async with super().request_stream(*args, **kwargs) as response:
+                yield response
+
+    model = GovernedOpenRouterModel(model_id, provider=provider)
+    model._condor_gate = gate
+    return model
+
+
+def _make_openai_compat_model(
+    model_id: str,
+    provider: Any,
+    gate: Callable[[], Awaitable[None]] | None = None,
+) -> Any:
     """Build an OpenAIChatModel that never sends an assistant ``content: null``.
 
     Ollama's OpenAI-compatible ``/v1/chat/completions`` endpoint rejects any
@@ -206,6 +279,12 @@ def _make_openai_compat_model(model_id: str, provider: Any) -> Any:
     nulls to an empty string so strict local backends (Ollama, some LM Studio /
     vLLM builds) accept the follow-up request inside a multi-step tool run.
 
+    ``gate``, when given, is awaited before every request the model sends — the
+    request budget's admission check (:mod:`condor.llm.budget`). It lives here,
+    not in an HTTP hook, because the OpenAI SDK swallows anything a hook raises
+    into a generic "Connection error" after its own retries; raised from the
+    model, :class:`~condor.llm.budget.BudgetExhausted` reaches the run intact.
+
     The subclass is defined lazily and cached so the heavy pydantic-ai import
     only happens when a model is actually built.
     """
@@ -214,6 +293,9 @@ def _make_openai_compat_model(model_id: str, provider: Any) -> Any:
         from pydantic_ai.models.openai import OpenAIChatModel
 
         class _NullContentSafeOpenAIChatModel(OpenAIChatModel):
+            # Set by the factory below, per instance; ``None`` = no admission check.
+            _condor_gate: Callable[[], Awaitable[None]] | None = None
+
             async def _map_messages(self, *args: Any, **kwargs: Any) -> Any:
                 mapped = await super()._map_messages(*args, **kwargs)
                 for msg in mapped:
@@ -225,9 +307,23 @@ def _make_openai_compat_model(model_id: str, provider: Any) -> Any:
                         msg["content"] = ""
                 return mapped
 
+            async def request(self, *args: Any, **kwargs: Any) -> Any:
+                if self._condor_gate is not None:
+                    await self._condor_gate()
+                return await super().request(*args, **kwargs)
+
+            @contextlib.asynccontextmanager
+            async def request_stream(self, *args: Any, **kwargs: Any) -> Any:
+                if self._condor_gate is not None:
+                    await self._condor_gate()
+                async with super().request_stream(*args, **kwargs) as response:
+                    yield response
+
         _NULL_SAFE_MODEL_CLS = _NullContentSafeOpenAIChatModel
 
-    return _NULL_SAFE_MODEL_CLS(model_id, provider=provider)
+    model = _NULL_SAFE_MODEL_CLS(model_id, provider=provider)
+    model._condor_gate = gate
+    return model
 
 
 def _tool_args_to_dict(args: Any) -> dict | None:
@@ -442,8 +538,24 @@ class PydanticAIClient:
         ) = None,  # restrict the agent to these tool names
         system_prompt: str = "",
         env_keys_allowed: bool = True,
+        budget_caller: str = "interactive",
+        unattended: bool = False,
+        reasoning_effort: str | None = None,
     ):
         self.model_name = model
+        # Overrides agent-config.json ``thinking`` for this client only (OpenRouter's
+        # ``reasoning.effort``). A short advisory call must not think as long as a
+        # desk's decision does.
+        self.reasoning_effort = reasoning_effort
+        # Who the request ledger books this client's requests to (a loop's
+        # agent_id; "interactive" for a chat), and whether nobody is watching
+        # the run: an unattended run is also held to the per-run request cap and
+        # to what is left of the day's budget (agent-config.json ``budget``).
+        self.budget_caller = budget_caller
+        self.unattended = unattended
+        # The OpenRouter HTTP client this client opened, closed in stop(): a
+        # client built per tick would otherwise leak its connection pool.
+        self._http_client: Any = None
         self.mcp_server_configs = mcp_servers or []
         self.permission_callback = permission_callback
         self.extra_env = extra_env
@@ -490,8 +602,17 @@ class PydanticAIClient:
         self._lifecycle_error: BaseException | None = None
         # Accumulated turn history — grows with each prompt_stream() call so
         # the model sees prior turns. A fresh client is created per session/tick,
-        # so history is reset by recreating the client rather than in-place.
+        # so history is reset by recreating the client rather than in-place —
+        # but a loop tick already gets a fresh client every tick (TickEngine),
+        # so only a long-lived chat session (same client reused across many
+        # prompt_stream() calls, condor/runtime/sessions.py) actually keeps
+        # this growing for the session's life, resending the whole thing on
+        # every single turn (system review 2026-10-31, finding #22).
+        # ``_history_turn_lens`` tracks how many messages each turn added, so
+        # trimming can only ever drop whole turns — never split a
+        # tool-call/tool-result pair mid-turn, which a model API will refuse.
         self._message_history: list = []
+        self._history_turn_lens: list[int] = []
         # Set by abort_prompt(); the node loop reads it between graph steps.
         # There is no protocol to notify here (the "agent" is a library call),
         # so cancelling the run *is* the cancel.
@@ -502,6 +623,18 @@ class PydanticAIClient:
         self.usage = TokenUsage()
 
     async def _build_model(self) -> Any:
+        from condor.llm.budget import get_governor
+        from condor.llm.cost_model import CostTrackingModel
+
+        model = await self._build_provider_model()
+        governor = get_governor()
+        return (
+            CostTrackingModel(model, governor, self.budget_caller, self.model_name)
+            if governor.config.enabled
+            else model
+        )
+
+    async def _build_provider_model(self) -> Any:
         """Build the pydantic-ai model object with sensible defaults.
 
         Async because a bare local key ("ollama:" / "lmstudio:") has to ask the
@@ -558,13 +691,32 @@ class PydanticAIClient:
                 raise RuntimeError(
                     "OPENROUTER_API_KEY is not set. Add it to your .env to use openrouter:* models."
                 )
+            # Request accounting (agent-config.json ``budget``): only when it is
+            # on and covers this model. Otherwise the client is built exactly as
+            # it always was.
+            from openai import DefaultAsyncHttpxClient
+
+            from condor.llm.budget import get_governor
+
+            governor = get_governor()
+            gate = governor.gate_for(self.budget_caller, model_id)
+            http_client = None
+            if gate is not None:
+                http_client = DefaultAsyncHttpxClient(
+                    timeout=_local_timeout,
+                    event_hooks=governor.event_hooks(self.budget_caller, model_id),
+                )
+                self._http_client = http_client
             openai_client = AsyncOpenAI(
                 base_url=base_url or DEFAULT_BASE_URLS["openrouter"],
                 api_key=api_key,
                 timeout=_local_timeout,
+                http_client=http_client,
             )
-            return _make_openai_compat_model(
-                model_id, OpenAIProvider(openai_client=openai_client)
+            from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+            return _make_openrouter_model(
+                model_id, OpenRouterProvider(openai_client=openai_client), gate=gate
             )
 
         # Custom OpenAI-compatible provider (Venice AI, Together, any vLLM/TGI...):
@@ -763,6 +915,15 @@ class PydanticAIClient:
             self._mcp_servers.append(mcp_server)
 
         model = await self._build_model()
+        # Keep the meter installed even if the budget starts disabled: a long
+        # chat can enable its dollar cap without rebuilding this client.
+        from condor.llm.budget import get_governor
+        from condor.llm.cost_model import CostTrackingModel
+
+        if not isinstance(model, CostTrackingModel):
+            model = CostTrackingModel(
+                model, get_governor(), self.budget_caller, self.model_name
+            )
         capabilities = (
             [PrepareTools(self._prepare_tools)] if self.allowed_tools else None
         )
@@ -771,6 +932,7 @@ class PydanticAIClient:
             instructions=self.system_prompt or None,
             toolsets=self._gate_toolsets(toolsets),
             capabilities=capabilities,
+            model_settings=self._model_settings(),
         )
 
         # Resolve the global semaphore for this server's base URL so all client
@@ -781,7 +943,7 @@ class PydanticAIClient:
         resolved_base_url = resolve_base_url(self.model_name, self.base_url)
         self._request_semaphore = (
             _get_server_semaphore(resolved_base_url)
-            if resolved_base_url is not None
+            if resolved_base_url is not None and serializes_requests(self.model_name)
             else None
         )
 
@@ -801,6 +963,81 @@ class PydanticAIClient:
             self.model_name,
             len(self._mcp_servers),
         )
+
+    def _model_settings(self) -> dict[str, Any] | None:
+        """Per-request model settings from ``agent-config.json``, or ``None``.
+
+        Read when the agent is built, which is once per tick for a loop and once
+        per session for a chat, so an edit to the file lands on the next of
+        either with no restart. ``None`` — not an empty dict — when the file
+        asks for nothing, so a run without one is exactly what it was before.
+
+        The reasoning request is OpenRouter's (``reasoning`` in the request
+        body); other providers have their own spelling and are left alone.
+        """
+        from condor.agent_config import get_agent_config
+
+        cfg = get_agent_config()
+        settings: dict[str, Any] = {}
+        if cfg.max_output_tokens is not None:
+            settings["max_tokens"] = cfg.max_output_tokens
+        if model_prefix(self.model_name) == "openrouter":
+            body: dict[str, Any] = {"usage": {"include": True}}
+            reasoning = cfg.thinking.openrouter_reasoning()
+            if self.reasoning_effort:
+                reasoning = {"effort": self.reasoning_effort}
+            if reasoning:
+                body["reasoning"] = reasoning
+            model_id = self.model_name.partition(":")[2]
+            allowed = cfg.openrouter_provider_only.get(model_id)
+            if allowed:
+                body["provider"] = {"only": list(allowed)}
+            from condor.llm.budget import is_free_model
+
+            if is_free_model(model_id):
+                body["provider"] = {
+                    **body.get("provider", {}),
+                    "max_price": {"prompt": 0, "completion": 0},
+                }
+            elif cfg.budget.monthly_cost_cap_usd is not None:
+                # Pinned endpoint, no fallback routing, and a price ceiling from the
+                # config. The config validator proves requestCostReserveUsd covers
+                # the worst request these allow (context x ceiling + capped output).
+                ceiling = cfg.budget.paid_price_ceiling_usd_per_million
+                body["provider"] = {
+                    **body.get("provider", {}),
+                    "max_price": {
+                        "prompt": ceiling.prompt,
+                        "completion": ceiling.completion,
+                    },
+                    "allow_fallbacks": False,
+                }
+            if body:
+                settings["extra_body"] = body
+        return settings or None
+
+    def _usage_limits(self) -> Any:
+        """The run's request limit as pydantic-ai ``UsageLimits``, or ``None``.
+
+        ``None`` leaves the library's own limit (50 requests) in force, which is
+        what every run had before ``maxSteps`` existed. An unattended run is
+        additionally held to the per-run cap and to what is left of today's
+        budget (:meth:`condor.agent_config.AgentRuntimeConfig.run_limit`).
+        """
+        from pydantic_ai.usage import UsageLimits
+
+        from condor.agent_config import get_agent_config
+        from condor.llm.budget import get_governor
+
+        cfg = get_agent_config()
+        governor = get_governor()
+        left = (
+            governor.remaining()
+            if self.unattended and governor.applies_to_agent_key(self.model_name)
+            else None
+        )
+        limit = cfg.run_limit(unattended=self.unattended, budget_left=left)
+        return UsageLimits(request_limit=limit) if limit is not None else None
 
     async def _await_ready(self) -> None:
         """Wait for the MCP lifecycle task to come up, under a deadline.
@@ -968,6 +1205,12 @@ class PydanticAIClient:
             self._mcp_task = None
         self._mcp_servers.clear()
         self._agent = None
+        http_client, self._http_client = self._http_client, None
+        if http_client is not None:
+            try:
+                await http_client.aclose()
+            except Exception:  # noqa: BLE001 - closing a pool must not fail a stop
+                log.debug("Could not close the OpenRouter HTTP client", exc_info=True)
 
     @property
     def alive(self) -> bool:
@@ -1151,6 +1394,7 @@ class PydanticAIClient:
 
             try:
                 from pydantic_ai.agent import CallToolsNode, ModelRequestNode
+                from pydantic_ai.exceptions import UsageLimitExceeded
                 from pydantic_graph import End
 
                 self._permission_gate.reset()
@@ -1158,53 +1402,88 @@ class PydanticAIClient:
                 # not be projected as a "completed" update over the "blocked"
                 # event the dashboard already received.
                 blocked_ids: set[str] = set()
+                # Set when the run hit its request limit (agent-config.json
+                # ``maxSteps`` / the per-run cap): the turn ends early, but it
+                # ends as a turn, not as an error.
+                limit_hit = ""
 
                 async with (
                     self._agent.iter(
                         self._build_user_prompt(text, images),
                         message_history=self._message_history,
+                        usage_limits=self._usage_limits(),
                     ) as run,
                     self._usage_counted(run),
                 ):
-                    async for node in run:
-                        if self._abort_requested:
-                            aborted = True
-                            break
+                    try:
+                        async for node in run:
+                            if self._abort_requested:
+                                aborted = True
+                                break
 
-                        if isinstance(node, End):
-                            # Nothing to project: the final text already went
-                            # out as the last CallToolsNode's TextPart.
-                            break
+                            if isinstance(node, End):
+                                # Nothing to project: the final text already went
+                                # out as the last CallToolsNode's TextPart.
+                                break
 
-                        if isinstance(node, ModelRequestNode):
-                            elapsed = time.monotonic() - start_time
-                            await emit(Heartbeat(elapsed_seconds=elapsed))
-                            for event in self._tool_return_events(node, blocked_ids):
-                                await emit(event)
-
-                        elif isinstance(node, CallToolsNode):
-                            async with contextlib.aclosing(
-                                self._response_events(node, blocked_ids)
-                            ) as response_events:
-                                async for event in response_events:
+                            if isinstance(node, ModelRequestNode):
+                                elapsed = time.monotonic() - start_time
+                                await emit(Heartbeat(elapsed_seconds=elapsed))
+                                for event in self._tool_return_events(
+                                    node, blocked_ids
+                                ):
                                     await emit(event)
+
+                            elif isinstance(node, CallToolsNode):
+                                async with contextlib.aclosing(
+                                    self._response_events(node, blocked_ids)
+                                ) as response_events:
+                                    async for event in response_events:
+                                        await emit(event)
+                    except UsageLimitExceeded as exc:
+                        limit_hit = str(exc) or "request limit reached"
+                        log.warning(
+                            "PydanticAI run stopped at its request limit (%s): %s",
+                            self.model_name,
+                            limit_hit,
+                        )
 
                     # Accumulate messages so the next prompt_stream() call sees
                     # this turn's context via message_history. An aborted run
                     # has no result, but its partial turn must land here too:
                     # skipping it is what makes the model answer the follow-up
-                    # as though it had finished a turn the user never saw.
+                    # as though it had finished a turn the user never saw. A run
+                    # that hit its request limit is the same shape.
                     if run.result is not None:
-                        self._message_history.extend(run.result.new_messages())
-                    elif aborted:
-                        self._message_history.extend(run.new_messages())
+                        self._extend_message_history(run.result.new_messages())
+                    elif aborted or limit_hit:
+                        self._extend_message_history(run.new_messages())
 
-                await emit(
-                    PromptDone(stop_reason="cancelled" if aborted else "end_turn")
-                )
+                if limit_hit:
+                    # ACP's name for this stop, so every consumer already reads
+                    # it as "ended early", not as a failure (it is not in
+                    # FAILED_STOP_REASONS). The text is what a journal keeps.
+                    await emit(
+                        TextChunk(
+                            text=f"\n(stopped early: {limit_hit}. Raise maxSteps in "
+                            "agent-config.json for longer runs.)"
+                        )
+                    )
+                    await emit(PromptDone(stop_reason="max_turn_requests"))
+                else:
+                    await emit(
+                        PromptDone(stop_reason="cancelled" if aborted else "end_turn")
+                    )
 
             except asyncio.TimeoutError:
                 await emit(PromptDone(stop_reason="timeout"))
+            except BudgetExhausted as e:
+                # Not a crash and not worth a traceback: the day's request
+                # budget is spent (condor.llm.budget). The message says when it
+                # resets, and it is the line the engine puts on the tick error.
+                log.warning("Request budget exhausted for %s: %s", self.model_name, e)
+                await emit(TextChunk(text=f"(request budget exhausted: {e})"))
+                await emit(PromptDone(stop_reason="error"))
             except Exception as e:
                 log.exception("PydanticAI prompt error: %s", e)
                 await self._mark_dead_if_transport_closed(e)
@@ -1234,10 +1513,9 @@ class PydanticAIClient:
         pydantic-ai's ``input_tokens`` is already inclusive of cache, which is
         the shape :class:`TokenUsage` stores, so the counters go in unconverted.
 
-        The price is all or nothing per run: one response the bundled
-        ``genai_prices`` table cannot price (every local model, a brand-new
-        id) makes the run's cost unknown rather than understated, and it is
-        counted in ``unpriced_turns`` instead.
+        Keep the known priced subtotal even when another response cannot be
+        priced, and mark that run in ``unpriced_turns``. Per-response durable
+        accounting and admission live in CostTrackingModel.
 
         Never raises: accounting must not cost the user their answer.
         """
@@ -1255,10 +1533,12 @@ class PydanticAIClient:
             priced = True
             for response in responses:
                 try:
-                    cost += float(response.cost().total_price)
+                    from condor.llm.cost_model import response_cost_usd
+
+                    cost += response_cost_usd(response, self.model_name)
                 except Exception:  # noqa: BLE001 - LookupError, the model_name assert
                     priced = False
-                    break
+                    continue
             context_used = None
             if responses:
                 last = responses[-1].usage
@@ -1268,13 +1548,32 @@ class PydanticAIClient:
                 output_tokens=ru.output_tokens,
                 cache_read_tokens=ru.cache_read_tokens,
                 cache_write_tokens=ru.cache_write_tokens,
-                cost_usd=cost if priced else 0.0,
+                cost_usd=cost,
                 unpriced_turns=0 if priced else 1,
                 context_used=context_used,
                 context_size=self._context_size(),
             )
+            # Durable cost accounting happens in CostTrackingModel after each
+            # response, before another tool step can make a provider request.
         except Exception:  # noqa: BLE001 - see docstring
             log.warning("Could not count usage for %s", self.model_name, exc_info=True)
+
+    def _extend_message_history(self, new_messages: list) -> None:
+        """Append one turn's messages, then drop the oldest whole turns past
+        :data:`MAX_HISTORY_TURNS` (finding #22).
+
+        Tracked and trimmed per-turn, never per-message: a turn's messages
+        alternate ``ModelResponse`` tool calls with the ``ModelRequest`` tool
+        results answering them, and cutting between the two would hand the
+        model a dangling tool call with no result, which most providers
+        reject outright. Dropping a turn only once it is entirely past the
+        cap keeps every surviving pair intact.
+        """
+        self._message_history.extend(new_messages)
+        self._history_turn_lens.append(len(new_messages))
+        while len(self._history_turn_lens) > MAX_HISTORY_TURNS:
+            oldest = self._history_turn_lens.pop(0)
+            del self._message_history[:oldest]
 
     def _context_size(self) -> int | None:
         """The model's context window, when it is known without a request.

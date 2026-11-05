@@ -24,7 +24,7 @@ controlled only by spread width, order size, inventory skew and the static price
 (not `MarketMakingControllerBase` / `MarketMakingControllerConfigBase`). The Hummingbot API
 therefore imports it from `controllers/generic/`, even though it is a market-making strategy.
 
-- Condor category: `generic` (this file's frontmatter `type: generic`; inference from the
+- Griffin category: `generic` (this file's frontmatter `type: generic`; inference from the
   base class gives the same answer).
 - Every config must carry `controller_type: generic` (it is also the class default).
 - Sync / upload it as **generic**. The server resolves the module as
@@ -141,7 +141,7 @@ bot with `manage_bots(action="update_config")`.
 
 | Field | Type | Default | Updatable | Meaning / tuning |
 |---|---|---|---|---|
-| `id` | str | required | no | Config id. Do not put it in sample files; Condor sets `pmm_v1__<style>` on upload. |
+| `id` | str | required | no | Config id. Do not put it in sample files; Griffin sets `pmm_v1__<style>` on upload. |
 | `controller_name` | str | `pmm_v1` | no | Must be `pmm_v1`. |
 | `controller_type` | str | `generic` | no | Must be `generic`. |
 | `connector_name` | str | `binance` | no | Spot connector (e.g. `binance`, `kucoin`, `okx`). |

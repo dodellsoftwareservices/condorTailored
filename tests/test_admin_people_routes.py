@@ -32,6 +32,7 @@ from condor.web.routes.admin import (
     list_audit,
     list_people,
     list_users,
+    reset_person_2fa,
     set_person_code_run,
     set_person_role,
     set_person_server_access,
@@ -376,6 +377,48 @@ def test_granting_code_run_to_an_admin_is_still_refused(cm):
         ),
         409,
     )
+
+
+# ── two-factor reset (the lockout escape hatch) ──
+
+
+def test_an_admin_can_reset_a_locked_out_persons_2fa(cm):
+    cm.enroll_totp(SEAT.id)
+    cm.set_user_preference(SEAT.id, cm_module.WEB_2FA_ENABLED_PREF, True)
+    assert cm.has_2fa_enabled(SEAT.id) is True
+
+    row = asyncio.run(reset_person_2fa(SEAT.id, user=ADMIN))
+
+    assert row.two_factor_enabled is False
+    assert cm.has_2fa_enabled(SEAT.id) is False
+
+
+def test_the_reset_is_audited_as_an_admin_action_not_self_service(cm):
+    cm.enroll_totp(SEAT.id)
+    cm.set_user_preference(SEAT.id, cm_module.WEB_2FA_ENABLED_PREF, True)
+
+    asyncio.run(reset_person_2fa(SEAT.id, user=ADMIN))
+
+    entry = cm._audit_log[-1]
+    assert entry["action"] == "2fa_disabled"
+    assert entry["actor_id"] == ADMIN.id
+    assert entry["details"]["self_service"] is False
+
+
+def test_resetting_2fa_for_a_non_admin_seat_is_refused(cm):
+    cm.enroll_totp(SEAT.id)
+    cm.set_user_preference(SEAT.id, cm_module.WEB_2FA_ENABLED_PREF, True)
+
+    expect_refusal(lambda: asyncio.run(reset_person_2fa(SEAT.id, user=SEAT)), 403)
+
+
+def test_resetting_2fa_for_an_unknown_user_is_a_404(cm):
+    expect_refusal(lambda: asyncio.run(reset_person_2fa(999999, user=ADMIN)), 404)
+
+
+def test_resetting_2fa_for_someone_without_it_is_a_harmless_no_op(cm):
+    row = asyncio.run(reset_person_2fa(SEAT.id, user=ADMIN))
+    assert row.two_factor_enabled is False
 
 
 # ── audit ──

@@ -1,27 +1,38 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useState, type ComponentType } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { EXECUTION_PATH } from "@/components/chat/accountPanels";
 import { AppShell } from "@/components/layout/AppShell";
+import { FallbackSpinner } from "@/components/ui/FallbackSpinner";
 import { ServerContext } from "@/hooks/useServer";
 import { AuthContext, SERVER_KEY, useAuth, useAuthState } from "@/lib/auth";
 import { invalidateServerScopedQueries, queryClient } from "@/lib/queryClient";
-import {
-  AgentRunsRedirect,
-  AgentStrategyRedirect,
-  AgentWorkspace,
-} from "@/pages/AgentWorkspace";
-import { Agents } from "@/pages/Agents";
-import { BotDetail } from "@/pages/BotDetail";
-import { Bots } from "@/pages/Bots";
-import { CreateExecutor } from "@/pages/CreateExecutor";
-import { Dex } from "@/pages/Dex";
-import { DexPool } from "@/pages/DexPool";
-import { Login } from "@/pages/Login";
-import { Portfolio } from "@/pages/Portfolio";
-import { Routines } from "@/pages/Routines";
-import { Settings } from "@/pages/Settings";
+
+/** Keep the shell and its sockets mounted while a route's code loads. */
+function lazyPage(load: () => Promise<{ default: ComponentType }>) {
+  const Component = lazy(load);
+  return function LazyPage() {
+    return <Suspense fallback={<FallbackSpinner />}><Component /></Suspense>;
+  };
+}
+
+const Agents = lazyPage(() => import("@/pages/Agents").then((module) => ({ default: module.Agents })));
+const Home = lazyPage(() => import("@/pages/Home").then((module) => ({ default: module.Home })));
+const Portfolio = lazyPage(() => import("@/pages/Portfolio").then((module) => ({ default: module.Portfolio })));
+const Bots = lazyPage(() => import("@/pages/Bots").then((module) => ({ default: module.Bots })));
+const BotDetail = lazyPage(() => import("@/pages/BotDetail").then((module) => ({ default: module.BotDetail })));
+const CreateExecutor = lazyPage(() => import("@/pages/CreateExecutor").then((module) => ({ default: module.CreateExecutor })));
+const Dex = lazyPage(() => import("@/pages/Dex").then((module) => ({ default: module.Dex })));
+const DexPool = lazyPage(() => import("@/pages/DexPool").then((module) => ({ default: module.DexPool })));
+const Equities = lazyPage(() => import("@/pages/Equities").then((module) => ({ default: module.Equities })));
+const EquitySymbol = lazyPage(() => import("@/pages/EquitySymbol").then((module) => ({ default: module.EquitySymbol })));
+const Routines = lazyPage(() => import("@/pages/Routines").then((module) => ({ default: module.Routines })));
+const Settings = lazyPage(() => import("@/pages/Settings").then((module) => ({ default: module.Settings })));
+const Login = lazyPage(() => import("@/pages/Login").then((module) => ({ default: module.Login })));
+const AgentWorkspace = lazyPage(() => import("@/pages/AgentWorkspace").then((module) => ({ default: module.AgentWorkspace })));
+const AgentRunsRedirect = lazyPage(() => import("@/pages/AgentWorkspace").then((module) => ({ default: module.AgentRunsRedirect })));
+const AgentStrategyRedirect = lazyPage(() => import("@/pages/AgentWorkspace").then((module) => ({ default: module.AgentStrategyRedirect })));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -80,7 +91,7 @@ export default function App() {
                   </ProtectedRoute>
                 }
               >
-                <Route path="/" element={<Agents />} />
+                <Route path="/" element={<Home />} />
                 {/* What every agent is doing is the conversation's Execution
                     panel now, read owner first (FEAT-114) — so this address is
                     a redirect into it rather than a page. Kept rather than
@@ -106,6 +117,8 @@ export default function App() {
                 <Route path="/trade" element={<CreateExecutor />} />
             <Route path="/dex" element={<Dex />} />
             <Route path="/dex/:network/:address" element={<DexPool />} />
+                <Route path="/equities" element={<Equities />} />
+                <Route path="/equities/:symbol" element={<EquitySymbol />} />
                 {/* Executors are a scope of the browser now, not a page
                     (FEAT-086). The listing this replaces was the whole
                     history, live and archived together — which is two
@@ -126,12 +139,8 @@ export default function App() {
                 />
                 <Route path="/routines" element={<Routines />} />
                 <Route path="/reports" element={<Navigate to="/routines?tab=reports" replace />} />
-                {/* `/agents` has pointed at the home since the fleet grid
-                    was deleted, and the home is the conversation with every
-                    agent one message away — which is what somebody typing this
-                    is after. The listing they might mean instead is the
-                    Execution panel on that same screen (FEAT-114). */}
-                <Route path="/agents" element={<Navigate to="/" replace />} />
+                {/* Dedicated conversation workspace; home is the portfolio dashboard. */}
+                <Route path="/agents" element={<Agents />} />
                 {/* One agent, one screen: every section, run and tick is a query
                     parameter on this route (FEAT-103). */}
                 <Route path="/agents/:slug" element={<AgentWorkspace />} />

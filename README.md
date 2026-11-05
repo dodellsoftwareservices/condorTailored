@@ -313,6 +313,47 @@ WEB_HOST=0.0.0.0                         # Optional. Overrides the dashboard bin
 > multi-user instances, where a user could otherwise aim the fetcher at hosts
 > on your internal network. Cloud metadata addresses are always refused.
 
+### `agent-config.json` (optional)
+How much an unattended agent may do and how hard it may think, read like the
+`agent.config.json` of the Albatross CLI. Edits apply on the next tick or chat
+turn, no restart. Check one with `uv run python -m condor.agent_config`.
+
+```jsonc
+{
+  "maxSteps": 1000,                  // model requests one run may make (a tick, a chat turn)
+  "approvalPolicy": "always",        // "never" = no human prompts, except wallet-signing tools
+  "alwaysAllow": ["manage_bots:deploy", "stop_executor"],   // tool or tool:action
+  "thinking": { "effort": "high" },  // OpenRouter reasoning: none|minimal|low|medium|high|xhigh,
+                                     // or { "maxTokens": 4000 } instead of an effort
+  "tickTimeoutSec": 900,
+  "budget": {                        // a request ledger + pacer for rate-capped free models
+    "enabled": true, "dailyRequestCap": 1000, "reserveRequests": 50,
+    "requestsPerMinute": 18, "perRunRequestCap": 100, "pacing": true
+  }
+}
+```
+
+Without the file, every value is what Condor ran with before it existed
+(pydantic-ai's 50-request run limit, a human confirms every dangerous call, no
+budget). `maxSteps` bounds *every* run; `budget.perRunRequestCap` additionally
+bounds an unattended loop tick, because OpenRouter meters free models at 1000
+requests a day (after $10 of credit) and each model request is one of them, so
+a single 1000-step run could otherwise spend the day. The ledger is
+`data/llm_budget/requests-YYYYMMDD.jsonl` (one file per UTC day, the unit the
+provider resets on). `alwaysAllow` and `approvalPolicy` only skip the wait for a
+human on chat and delegation seats; a loop's risk gate and the refusal of raw
+controller-code pushes are not configurable from here.
+
+The checked-in file pre-approves nothing (`"alwaysAllow": []`) and meters every
+OpenRouter model (`"appliesTo": "all"`). `alwaysAllow` is not scoped to a venue,
+so an entry such as `manage_bots:deploy` also covers a mainnet connector once
+live keys are registered; add entries to a local copy, knowingly. The file's
+`model` reaches only the shift runner. For the model each seat really runs with,
+which agents can mutate, and the fallback a delegated run takes when its backend
+is down, run `uv run python -m condor.agents.seats` (also logged at startup).
+Set `AGENT_FALLBACK_MODEL=` (empty) in `.env` to have such a run fail instead of
+answering on another provider.
+
 ### `config.yml` (auto-created on first run)
 ```yaml
 servers:

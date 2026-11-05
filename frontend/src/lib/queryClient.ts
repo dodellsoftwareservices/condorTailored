@@ -452,7 +452,7 @@ export function gatewayWalletsQuery(server: string | null | undefined) {
 
 /**
  * Invalidates every cached answer a credential mutation (add/delete a CEX
- * key, or the Hyperliquid connect flow) can change: the credential list
+ * key) can change: the credential list
  * itself, the venue traits the Trade page's `credentialed` gate reads
  * (`useVenues` -> `caps.canTrade` in lib/connector-capabilities.ts), and the
  * connected-exchange list `usePrefetchData` warms. All three are held at a

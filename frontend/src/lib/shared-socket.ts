@@ -370,7 +370,7 @@ export function handleMessage(channel: string, data: unknown): void {
 // ── Socket lifecycle ──
 
 function openSocket(token: string): CondorWebSocket {
-  const ws = new CondorWebSocket(token);
+  const ws = new CondorWebSocket();
   socket = ws;
   socketToken = token;
 

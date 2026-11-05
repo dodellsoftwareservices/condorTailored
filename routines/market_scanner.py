@@ -7,16 +7,16 @@ import logging
 import time
 from typing import Any
 
-import aiohttp
 import numpy as np
 from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
 
+from condor.fetchers.market_data import fetch_tickers
 from config_manager import get_client
+from routines.base import RoutineResult
 
 logger = logging.getLogger(__name__)
 
-BINANCE_FUTURES_TICKER = "https://fapi.binance.com/fapi/v1/ticker/24hr"
 MAX_CONCURRENT = 30  # concurrent candle fetches
 
 
@@ -24,7 +24,7 @@ class Config(BaseModel):
     """Scan top perpetual markets for volume/volatility profiles and classify as mature or degen."""
 
     connector: str = Field(
-        default="binance_perpetual", description="Exchange connector"
+        default="lighter_perpetual", description="Exchange connector"
     )
     top_n: int = Field(default=100, description="Number of top pairs by 24h volume")
     lookback_hours: int = Field(default=4, description="Hours of 1m candle data")
@@ -36,35 +36,58 @@ class Config(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Step 1: Get top pairs by 24h volume from Binance directly
+# Step 1: Get top pairs by 24h volume, via the hummingbot-api ticker pool
 # ---------------------------------------------------------------------------
 
 
-async def fetch_top_pairs(top_n: int, min_volume: float) -> list[dict]:
-    """Fetch 24h tickers from Binance Futures and return top N by quote volume."""
-    async with aiohttp.ClientSession() as session:
-        async with session.get(BINANCE_FUTURES_TICKER) as resp:
-            resp.raise_for_status()
-            tickers = await resp.json()
+async def fetch_top_pairs(
+    client, connector: str, top_n: int, min_volume: float
+) -> list[dict]:
+    """Fetch 24h tickers for `connector` and return top N by quote volume.
 
-    # Filter USDT pairs, sort by quote volume
+    Previously hit Binance's futures REST ticker directly — hardcoded to one
+    exchange and 451-blocked for US IPs (system review 2026-10-31, finding
+    #10). Goes through the same connector-agnostic endpoint
+    `fetch_candles_for_pair` below already uses, so the scan follows whatever
+    `connector` the config names instead of always being Binance.
+    """
+    result = await fetch_tickers(client, connector, strict=True)
+    raw_tickers = result["tickers"]
+
+    stable_quoted = {
+        pair: t
+        for pair, t in raw_tickers.items()
+        if pair.endswith(("-USDT", "-USD", "-USDC"))
+    }
+    # Some connectors (e.g. newer perp DEXs) have no bulk 24h-volume source
+    # wired into the API yet and fall back to a price-only read — every
+    # ticker comes back with volume 0, which `min_volume` would silently read
+    # as "no pairs are liquid enough" instead of "this connector can't answer
+    # the question asked." Surface that distinction instead of going quiet.
+    if stable_quoted and not any(
+        (t.get("usd_volume") or t.get("quote_volume") or 0) > 0
+        for t in stable_quoted.values()
+    ):
+        raise RuntimeError(
+            f"'{connector}' has no 24h volume data available (price-only ticker "
+            "source) — can't rank pairs by volume. Try a different connector."
+        )
+
     usdt_tickers = []
-    for t in tickers:
-        symbol = t.get("symbol", "")
-        if not symbol.endswith("USDT"):
+    for pair, t in stable_quoted.items():
+        volume = t.get("usd_volume")
+        if volume is None:
+            volume = t.get("quote_volume", 0)
+        if volume < min_volume:
             continue
-        quote_vol = float(t.get("quoteVolume", 0))
-        if quote_vol < min_volume:
-            continue
-        # Convert symbol format: BTCUSDT -> BTC-USDT
-        base = symbol.replace("USDT", "")
         usdt_tickers.append(
             {
-                "trading_pair": f"{base}-USDT",
-                "symbol": symbol,
-                "volume_24h_usd": quote_vol,
-                "price": float(t.get("lastPrice", 0)),
-                "price_change_pct": float(t.get("priceChangePercent", 0)),
+                "trading_pair": pair,
+                "symbol": pair,
+                "volume_24h_usd": volume,
+                "price": t.get("price", 0),
+                # Not provided by this endpoint (no second API call to get it).
+                "price_change_pct": 0.0,
             }
         )
 
@@ -346,20 +369,26 @@ def format_results(result: dict, lookback_hours: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     """Scan top markets and classify by volume/volatility profile."""
     chat_id = context._chat_id if hasattr(context, "_chat_id") else None
     client = await get_client(chat_id, context=context)
     if not client:
-        return "No server available. Configure servers in /config."
+        return RoutineResult(
+            text="No server available. Configure servers in /config.", failed=True
+        )
 
     max_records = config.lookback_hours * 60  # 1m candles
 
     # Step 1: Get top pairs by 24h volume
     try:
-        top_pairs = await fetch_top_pairs(config.top_n, config.min_volume_usd)
+        top_pairs = await fetch_top_pairs(
+            client, config.connector, config.top_n, config.min_volume_usd
+        )
     except Exception as e:
-        return f"Failed to fetch tickers: {e}"
+        return RoutineResult(text=f"Failed to fetch tickers: {e}", failed=True)
 
     if not top_pairs:
         return "No pairs found matching volume criteria."
@@ -370,7 +399,7 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
     )
 
     if not candles_map:
-        return "Failed to fetch candles for any pair."
+        return RoutineResult(text="Failed to fetch candles for any pair.", failed=True)
 
     # Step 3: Analyze each pair
     pair_lookup = {p["trading_pair"]: p for p in top_pairs}
@@ -381,7 +410,9 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
             analyses.append(result)
 
     if not analyses:
-        return "Analysis failed — no valid candle data."
+        return RoutineResult(
+            text="Analysis failed — no valid candle data.", failed=True
+        )
 
     # Step 4: Classify
     classified = classify_markets(analyses, config.mature_count, config.degen_count)

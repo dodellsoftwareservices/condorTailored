@@ -1,0 +1,285 @@
+{
+  "$defs": {
+    "Budget": {
+      "additionalProperties": true,
+      "description": "The request ledger and pacer (:mod:`condor.llm.budget`).\n\nOff unless a file turns it on: with no file there is no ledger, no pacing\nand no rate limit, exactly as before.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "appliesTo": {
+          "default": "free-models",
+          "enum": [
+            "free-models",
+            "all"
+          ],
+          "title": "Appliesto",
+          "type": "string"
+        },
+        "dailyRequestCap": {
+          "default": 1000,
+          "minimum": 1,
+          "title": "Dailyrequestcap",
+          "type": "integer"
+        },
+        "reserveRequests": {
+          "default": 50,
+          "minimum": 0,
+          "title": "Reserverequests",
+          "type": "integer"
+        },
+        "requestsPerMinute": {
+          "default": 18,
+          "minimum": 1,
+          "title": "Requestsperminute",
+          "type": "integer"
+        },
+        "perRunRequestCap": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 100,
+          "title": "Perrunrequestcap"
+        },
+        "pacing": {
+          "default": true,
+          "title": "Pacing",
+          "type": "boolean"
+        },
+        "assumedRequestsPerTick": {
+          "default": 8,
+          "minimum": 1,
+          "title": "Assumedrequestspertick",
+          "type": "integer"
+        },
+        "dailyCostCapUsd": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UTC daily spend threshold across direct model providers. With a cap, requests are serialized and output is capped at 16,384 tokens. One response can overshoot; unknown pricing pauses requests. ACP subscription clients are refused. Null disables the dollar limit.",
+          "title": "Dailycostcapusd"
+        },
+        "monthlyCostCapUsd": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UTC calendar-month spend ceiling. Paid requests reserve their configured worst-case cost before admission; free models remain available.",
+          "title": "Monthlycostcapusd"
+        },
+        "requestCostReserveUsd": {
+          "default": 0.15,
+          "description": "Worst-case cost of one paid request, held against the monthly cap while it is in flight. An unpriced response is booked at this amount. Must be at least the real worst case for the pinned model (its price ceilings times its context window).",
+          "exclusiveMinimum": 0,
+          "title": "Requestcostreserveusd",
+          "type": "number"
+        },
+        "paidPriceCeilingUsdPerMillion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PriceCeiling"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OpenRouter max_price sent with every paid request, in dollars per million tokens. Required with a monthly cap. Set it a little above the pinned endpoint's current price: if the endpoint becomes dearer than this, requests fail with 404 rather than overspend."
+        },
+        "paidMaxContextTokens": {
+          "default": 1048576,
+          "description": "Largest prompt the pinned paid model accepts. Together with the price ceiling it bounds one request's cost, which requestCostReserveUsd must cover.",
+          "minimum": 1,
+          "title": "Paidmaxcontexttokens",
+          "type": "integer"
+        },
+        "allowedPaidModels": {
+          "default": [],
+          "description": "Paid model keys (e.g. openrouter:vendor/model) permitted while a monthly cap is set. Anything else paid is refused, because only these have price ceilings pinned. Free models are always allowed.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowedpaidmodels",
+          "type": "array"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "PriceCeiling": {
+      "additionalProperties": true,
+      "description": "OpenRouter ``max_price``: dollars per million tokens, per direction.",
+      "properties": {
+        "prompt": {
+          "exclusiveMinimum": 0,
+          "title": "Prompt",
+          "type": "number"
+        },
+        "completion": {
+          "exclusiveMinimum": 0,
+          "title": "Completion",
+          "type": "number"
+        }
+      },
+      "required": [
+        "prompt",
+        "completion"
+      ],
+      "title": "PriceCeiling",
+      "type": "object"
+    },
+    "Thinking": {
+      "additionalProperties": true,
+      "description": "How hard the model is asked to think (OpenRouter ``reasoning``).",
+      "properties": {
+        "effort": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effort"
+        },
+        "maxTokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxtokens"
+        },
+        "exclude": {
+          "default": false,
+          "title": "Exclude",
+          "type": "boolean"
+        }
+      },
+      "title": "Thinking",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "The resolved ``agent-config.json``.",
+  "properties": {
+    "model": {
+      "default": "",
+      "title": "Model",
+      "type": "string"
+    },
+    "maxSteps": {
+      "anyOf": [
+        {
+          "maximum": 100000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Maxsteps"
+    },
+    "approvalPolicy": {
+      "default": "always",
+      "enum": [
+        "always",
+        "dangerous-only",
+        "never"
+      ],
+      "title": "Approvalpolicy",
+      "type": "string"
+    },
+    "alwaysAllow": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Alwaysallow",
+      "type": "array"
+    },
+    "thinking": {
+      "$ref": "#/$defs/Thinking"
+    },
+    "openrouterProviderOnly": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Openrouterprovideronly",
+      "type": "object"
+    },
+    "maxOutputTokens": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Maxoutputtokens"
+    },
+    "tickTimeoutSec": {
+      "anyOf": [
+        {
+          "minimum": 30,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ticktimeoutsec"
+    },
+    "budget": {
+      "$ref": "#/$defs/Budget"
+    }
+  },
+  "title": "Condor agent-config.json",
+  "type": "object",
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

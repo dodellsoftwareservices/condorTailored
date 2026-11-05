@@ -67,7 +67,7 @@ const brigado: FleetOwner = {
 const dashboard: FleetOwner = {
   runKey: "condor.ui",
   agentSlug: "condor",
-  agentName: "Condor",
+  agentName: "Griffin",
   strategySlug: "ui",
   strategyName: "Dashboard",
   namespace: "",
@@ -80,7 +80,7 @@ const dashboard: FleetOwner = {
 const chat: FleetOwner = {
   runKey: "condor.chat",
   agentSlug: "condor",
-  agentName: "Condor",
+  agentName: "Griffin",
   strategySlug: "chat",
   strategyName: "Chat",
   namespace: "",
@@ -153,7 +153,7 @@ describe("the agent scope header's name", () => {
   it("says the fleet map's words for a door, the same as the row it was opened from", async () => {
     await render(dashboard.runKey, dashboard);
 
-    expect(name()).toBe("Condor / Dashboard");
+    expect(name()).toBe("Griffin / Dashboard");
   });
 });
 
@@ -181,8 +181,8 @@ describe("what a bucket is not offered", () => {
 // workspace silently swapped for the agent's live loop strategy.
 describe("what a door is not offered", () => {
   it.each([
-    ["a chat", chat, "Condor / Chat"],
-    ["the dashboard", dashboard, "Condor / Dashboard"],
+    ["a chat", chat, "Griffin / Chat"],
+    ["the dashboard", dashboard, "Griffin / Dashboard"],
   ])("reports no loop status and no session button for %s", async (_, owner, title) => {
     await render(owner.runKey, owner);
 

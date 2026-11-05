@@ -34,7 +34,7 @@ def _write_agent(root, slug, *, body="Body.", **frontmatter):
 def registry(tmp_path, monkeypatch):
     """A registry containing Condor and one specialist, like the real one."""
     monkeypatch.setenv("CONDOR_AGENTS_ROOT", str(tmp_path))
-    _write_agent(tmp_path, CHAT_SLUG, name="Condor", agent_key="claude-acp:sonnet")
+    _write_agent(tmp_path, CHAT_SLUG, name="Griffin", agent_key="claude-acp:sonnet")
     _write_agent(
         tmp_path, "brigado", name="Brigado", when_to_consult="BRL market making"
     )
@@ -106,15 +106,15 @@ def test_chat_instructions_are_the_coordinator_text(registry, monkeypatch, slug)
     specialist framing — with ``identity_header``'s "You are NOT Condor" in it.
     """
     text = _instructions(monkeypatch, slug)
-    assert text.startswith("Condor exposes reusable **skills**")
-    assert "You are NOT Condor" not in text
+    assert text.startswith("Griffin exposes reusable **skills**")
+    assert "You are NOT Griffin" not in text
     assert "[AGENTS — delegate domain work to one of these]" in text
 
 
 def test_specialist_instructions_still_assert_their_own_identity(registry, monkeypatch):
     text = _instructions(monkeypatch, "brigado")
-    assert "You are NOT Condor" in text
-    assert not text.startswith("Condor exposes reusable **skills**")
+    assert "You are NOT Griffin" in text
+    assert not text.startswith("Griffin exposes reusable **skills**")
 
 
 def test_settings_specialist_slug_only_names_specialists():
@@ -148,7 +148,7 @@ def test_condor_is_a_real_record_in_the_agent_store(monkeypatch):
 
     agent = AgentStore().get(CHAT_SLUG)
     assert agent is not None
-    assert agent.name == "Condor"
+    assert agent.name == "Griffin"
     assert agent.source == _REPO_ROOT / "agents" / CHAT_SLUG / "AGENT.md"
     assert agent.instructions, "AGENT.md body is the chat's system prompt"
     # Not a routing target for specialists: it is the coordinator, not a domain
@@ -264,12 +264,16 @@ def test_the_reserved_slug_cannot_be_created_or_deleted(registry):
     assert store.get(CHAT_SLUG) is not None
 
 
-def test_identity_header_does_not_contradict_itself_for_condor():
+@pytest.mark.parametrize("label", ["", "Griffin", "Condor"])
+def test_identity_header_uses_griffin_without_changing_the_internal_slug(label):
     from condor.agents.agent import identity_header
 
-    header = identity_header(CHAT_SLUG, "Condor")
-    assert "You ARE Condor" in header
-    assert "You are NOT Condor" not in header
+    header = identity_header(CHAT_SLUG, label)
+    assert "You ARE Griffin" in header
+    assert "You are NOT Griffin" not in header
+    assert "refer to yourself as Griffin" in header
+    assert "slug: `condor`" in header
+    assert "You ARE Condor" not in header
     assert "coordinator" in header
 
 

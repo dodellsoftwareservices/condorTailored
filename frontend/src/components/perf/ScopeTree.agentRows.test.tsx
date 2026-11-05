@@ -80,7 +80,7 @@ const OWNERS: FleetOwner[] = [
   ).map(([slug, name]) => ({
     runKey: `condor.${slug}`,
     agentSlug: "condor",
-    agentName: "Condor",
+    agentName: "Griffin",
     strategySlug: slug,
     strategyName: name,
     namespace: "",
@@ -146,9 +146,9 @@ describe("ScopeTree owner rows", () => {
     // sidebar under the reader.
     expect(rowNames()).toEqual([
       "brigado / brl_mm",
-      "Condor / Dashboard",
-      "Condor / Chat",
-      "Condor / Delegation",
+      "Griffin / Dashboard",
+      "Griffin / Chat",
+      "Griffin / Delegation",
     ]);
   });
 

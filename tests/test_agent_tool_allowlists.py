@@ -57,6 +57,29 @@ NOT_CALLS: dict[str, set[str]] = {
 }
 
 
+#: Seats sealed on purpose: they hold NO code execution, delegation, routine, agent-management
+#: or credential-adjacent tools, so the "framework family" every other agent carries is
+#: withheld by design. ``run_code`` runs Python inside the main process, where the Hummingbot
+#: credential store and the Alpaca keys are reachable; handing it to a simulated-trading agent
+#: would quietly break its promise that no real account can be touched. Each sealed agent is
+#: held to ``SEALED_FORBIDDEN`` below instead of the family rule.
+SEALED = {"sim_crypto_trader", "sim_futures_trader"}
+SEALED_FORBIDDEN = {
+    "run_code",
+    "delegate",
+    "manage_routines",
+    "manage_agent_controllers",
+    "manage_agents",
+    "manage_loops",
+    "control_agent",
+    "manage_servers",
+    "manage_skill",
+    "manage_memory",
+    "send_notification",
+    "get_available_models",
+}
+
+
 def _frontmatter(path: Path) -> dict:
     return yaml.safe_load(path.read_text().split("---")[1]) or {}
 
@@ -98,7 +121,7 @@ def test_the_list_names_only_tools_the_seat_can_mount(slug):
     assert _allowlist(slug) <= AGENT_RING, sorted(_allowlist(slug) - AGENT_RING)
 
 
-@pytest.mark.parametrize("slug", ALLOWLISTED)
+@pytest.mark.parametrize("slug", sorted(set(ALLOWLISTED) - SEALED))
 def test_the_list_carries_the_framework_family(slug):
     missing = FRAMEWORK - _allowlist(slug)
     assert not missing, f"{slug} inherits playbooks that call {sorted(missing)}"
@@ -121,3 +144,15 @@ def test_every_exemption_is_still_needed():
         named = _named_in_own_files(slug)
         stale = {t for t in exempt if t not in named or t in _allowlist(slug)}
         assert not stale, f"drop {sorted(stale)} from NOT_CALLS[{slug!r}]"
+
+
+@pytest.mark.parametrize("slug", sorted(SEALED))
+def test_a_sealed_seat_holds_no_tool_that_could_reach_a_real_account(slug):
+    leaked = _allowlist(slug) & SEALED_FORBIDDEN
+    assert not leaked, f"{slug} is sealed but its list names {sorted(leaked)}"
+    # Every Hummingbot trading tool is also out: a sealed simulator must not be able to trade for real.
+    assert not (_allowlist(slug) & set(hummingbot_profiles.PROFILE_TOOLS["full"])), slug
+
+
+def test_every_sealed_agent_exists_and_is_allowlisted():
+    assert SEALED <= set(ALLOWLISTED), sorted(SEALED - set(ALLOWLISTED))

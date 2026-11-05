@@ -6,7 +6,6 @@ import {
   useState,
 } from "react";
 
-import { TOKEN_KEY, authHeaders } from "./auth-token";
 import { clearDiagnostics } from "./diagnostics";
 import { queryClient } from "./queryClient";
 import { clearSessionState } from "./sessionState";
@@ -20,11 +19,14 @@ export interface User {
 
 export interface AuthState {
   user: User | null;
+  /** Legacy name for the non-secret session ID used to rebind sockets.
+   * Authentication uses the HttpOnly cookie; this value is never sent as a
+   * credential and stays stable across /auth/session reads. */
   token: string | null;
   isAuthenticated: boolean;
-  loginWithToken: (loginToken: string) => Promise<void>;
+  loginWithToken: (loginToken: string, otp?: string) => Promise<void>;
   /** Local mode (FEAT-049): claim the local admin's session. 404s elsewhere. */
-  loginLocal: () => Promise<void>;
+  loginLocal: (otp?: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -72,6 +74,24 @@ function resetForNewUser(incoming: User) {
   clearSessionState();
 }
 
+/**
+ * Pull the `{code, message}` shape the auth routes send apart from a login
+ * failure, same unwrapping `apiFetch` (lib/api.ts) does for everything else
+ * — `code` is how the Login page tells "wrong/expired token" apart from
+ * "now enter your 2FA code" without parsing message text.
+ */
+async function parseAuthError(res: Response): Promise<Error> {
+  const err = await res.json().catch(() => ({}));
+  const detail: unknown = err.detail;
+  const detailObject =
+    detail && typeof detail === "object" ? (detail as Record<string, unknown>) : null;
+  const message = detailObject ? detailObject.message : detail;
+  return Object.assign(
+    new Error((typeof message === "string" && message) || "Login failed"),
+    { code: typeof detailObject?.code === "string" ? detailObject.code : undefined },
+  );
+}
+
 export const AuthContext = createContext<AuthState>({
   user: null,
   token: null,
@@ -86,27 +106,25 @@ export function useAuth() {
 }
 
 export function useAuthState(): AuthState {
-  const [token, setToken] = useState<string | null>(
-    () => localStorage.getItem(TOKEN_KEY),
-  );
+  // The session ID starts null. `user` keeps its localStorage cache so a reload
+  // renders the logged-in shell immediately instead of flashing the login
+  // screen while `/auth/session` is in flight; the effect below corrects it
+  // either way, same as the old code's background token check did.
+  const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(() => {
     const raw = localStorage.getItem(USER_KEY);
     return raw ? JSON.parse(raw) : null;
   });
 
-  const loginWithToken = useCallback(async (loginToken: string) => {
+  const loginWithToken = useCallback(async (loginToken: string, otp?: string) => {
     const res = await fetch("/api/v1/auth/token-login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: loginToken }),
+      body: JSON.stringify({ token: loginToken, otp }),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Login failed");
-    }
+    if (!res.ok) throw await parseAuthError(res);
     const data = await res.json();
     resetForNewUser(data.user);
-    localStorage.setItem(TOKEN_KEY, data.token);
     localStorage.setItem(USER_KEY, JSON.stringify(data.user));
     setToken(data.token);
     setUser(data.user);
@@ -114,24 +132,22 @@ export function useAuthState(): AuthState {
 
   // Local mode: the dashboard runs on this machine with no login at all, so
   // the session is claimed rather than presented. Stores exactly what
-  // loginWithToken stores — downstream there is no such thing as a "local"
-  // session, only a session.
-  const loginLocal = useCallback(async () => {
-    const res = await fetch("/api/v1/auth/local-login", { method: "POST" });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Local login failed");
-    }
+  // loginWithToken stores. Codes belong in the body, never access-log URLs.
+  const loginLocal = useCallback(async (otp?: string) => {
+    const res = await fetch("/api/v1/auth/local-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ otp }),
+    });
+    if (!res.ok) throw await parseAuthError(res);
     const data = await res.json();
     resetForNewUser(data.user);
-    localStorage.setItem(TOKEN_KEY, data.token);
     localStorage.setItem(USER_KEY, JSON.stringify(data.user));
     setToken(data.token);
     setUser(data.user);
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(SERVER_KEY);
     // Every cached response belongs to the session that fetched it. Logging out
@@ -142,7 +158,7 @@ export function useAuthState(): AuthState {
     // The console-error ring is session state for the same reason the cache is,
     // and it leaves the machine: it is quoted verbatim into the "Report an
     // issue" block and into the crash report ErrorBoundary files. Reached both
-    // from the Settings button and from the token check below, so an expired
+    // from the Settings button and from the session check below, so an expired
     // session drops its errors too.
     clearDiagnostics();
     // Order sizes, leverage, saved routine configs and starred pairs: what the
@@ -151,26 +167,44 @@ export function useAuthState(): AuthState {
     clearSessionState();
     setToken(null);
     setUser(null);
+    // Best-effort: drop the cookie server-side too. Fire-and-forget so an
+    // unreachable server never blocks the local sign-out the lines above
+    // already completed.
+    fetch("/api/v1/auth/logout", { method: "POST" }).catch(() => {});
   }, []);
 
-  // Validate token on mount
+  // Repopulate in-memory state from the cookie on every fresh page load.
+  // Nothing above survives a reload on purpose, and this is where it comes
+  // back — authenticated by the cookie, not by anything read off disk.
   useEffect(() => {
-    if (!token) return;
-    fetch("/api/v1/auth/me", {
-      headers: authHeaders(),
-    }).then((res) => {
-      if (!res.ok) {
-        logout();
-      }
-    }).catch(() => {
-      // server not available, keep token
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    fetch("/api/v1/auth/session")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { token: string; user: User } | null) => {
+        if (cancelled) return;
+        if (data) {
+          localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+          setToken(data.token);
+          setUser(data.user);
+        } else {
+          localStorage.removeItem(USER_KEY);
+          setToken(null);
+          setUser(null);
+        }
+      })
+      .catch(() => {
+        // Server unreachable: keep whatever was cached rather than bouncing
+        // to the login screen on a transient network blip.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return {
     user,
     token,
-    isAuthenticated: !!token && !!user,
+    isAuthenticated: !!user,
     loginWithToken,
     loginLocal,
     logout,

@@ -63,7 +63,7 @@ def _a_run(**kw) -> run_module.Run:
         started=1756300000.0,
         actor={"user_id": 1, "chat_id": 1},
         components=[components.CONDOR],
-        steps=[run_module.Step("condor.fast-forward", "Fast-forwarding Condor")],
+        steps=[run_module.Step("condor.fast-forward", "Fast-forwarding Griffin")],
     )
     defaults.update(kw)
     return run_module.Run(**defaults)
@@ -114,11 +114,11 @@ def test_output_is_trimmed_before_it_is_journaled():
 
 def test_a_failed_run_records_why():
     run = _a_run()
-    asyncio.run(run_module._fail(run, "Condor could not be fast-forwarded."))
+    asyncio.run(run_module._fail(run, "Griffin could not be fast-forwarded."))
 
     journaled = _journal()
     assert journaled["state"] == "failed"
-    assert journaled["error"] == "Condor could not be fast-forwarded."
+    assert journaled["error"] == "Griffin could not be fast-forwarded."
     assert run.done.is_set()
 
 
@@ -162,7 +162,9 @@ def test_coming_back_on_the_target_commit_is_a_success():
         TARGET,
         state=run_module.RESTARTING,
         target_commit=TARGET,
-        steps=[run_module.Step("condor.restart", "Restarting Condor", state="running")],
+        steps=[
+            run_module.Step("condor.restart", "Restarting Griffin", state="running")
+        ],
     )
     assert run is not None
     assert run.state == "succeeded"
@@ -176,7 +178,9 @@ def test_coming_back_on_a_different_commit_is_a_failure():
         OTHER,
         state=run_module.RESTARTING,
         target_commit=TARGET,
-        steps=[run_module.Step("condor.restart", "Restarting Condor", state="running")],
+        steps=[
+            run_module.Step("condor.restart", "Restarting Griffin", state="running")
+        ],
     )
     assert run is not None
     assert run.state == "failed"
@@ -203,7 +207,7 @@ def test_a_run_interrupted_mid_flight_is_failed_at_boot():
         target_commit=TARGET,
         steps=[
             run_module.Step(
-                "condor.fast-forward", "Fast-forwarding Condor", state="ok"
+                "condor.fast-forward", "Fast-forwarding Griffin", state="ok"
             ),
             run_module.Step("condor.deps", "Syncing dependencies", state="running"),
         ],

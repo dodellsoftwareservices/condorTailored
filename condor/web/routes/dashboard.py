@@ -1,0 +1,340 @@
+"""Read-only paper-account overview. Never submit or advance simulated orders."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from bisect import bisect_right
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Query
+
+from condor.asyncutil import SingleFlight
+from condor.dashboard_history import record_equity, record_observation
+from condor.dashboard_metrics import (
+    alpaca_outcomes,
+    clean_points,
+    number,
+    outcome_metrics,
+    risk_metrics,
+)
+from condor.paper_valuation import read_paper_valuation
+from condor.paths import data_dir
+from condor.web.auth import get_current_user, require_admin
+from condor.web.models import WebUser
+from condor.web.routes._equity_client import get_alpaca_client
+from condor.web.routes.paper_equities import _max_order_notional
+from condor.web.routes.sim_exchange import (
+    get_fut_service,
+    get_mm_service,
+    get_sim_service,
+)
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+STARTING_CAPITAL = 100_000.0  # Operator-confirmed initial Alpaca paper balance.
+RANGES = {"1D": 86400, "1W": 7 * 86400, "1M": 30 * 86400, "3M": 90 * 86400}
+_cache: dict[tuple, tuple[float, dict]] = {}
+_flights = SingleFlight()
+
+
+async def _read(coro):
+    try:
+        return await asyncio.wait_for(coro, timeout=12)
+    except Exception as exc:
+        return exc
+
+
+def _finish(account: dict, period: str, now: float) -> dict:
+    points = clean_points(account.get("points", []), now)
+    account["points"] = [p for p in points if p["timestamp"] >= now - RANGES[period]]
+    equity, starting = account.get("equity"), account["starting_capital"]
+    account["pnl"] = equity - starting if equity is not None else None
+    account["roi_pct"] = (
+        account["pnl"] / starting * 100
+        if account["pnl"] is not None and starting > 0
+        else None
+    )
+    outcomes = [
+        r
+        for r in account.pop("outcomes", [])
+        if now - RANGES[period] <= r["timestamp"] <= now
+    ]
+    account.update(outcome_metrics(outcomes))
+    if not account.get("outcomes_complete", False):
+        for name in (
+            "batting_average",
+            "profit_factor",
+            "average_win",
+            "average_loss",
+            "closed_trades",
+            "wins",
+            "losses",
+            "breakeven",
+            "gross_profit",
+            "gross_loss",
+        ):
+            account[name] = None
+    account.update(
+        risk_metrics(account["points"], now, calendar=account.get("calendar", "crypto"))
+    )
+    return account
+
+
+async def _alpaca(period: str, now: float) -> dict:
+    account = {
+        "id": "alpaca",
+        "label": "Alpaca Paper",
+        "status": "unavailable",
+        "starting_capital": STARTING_CAPITAL,
+        "equity": None,
+        "cash": None,
+        "deployed": None,
+        "order_cap": _max_order_notional(),
+        "calendar": "equities",
+        "volume": None,
+        "fees": None,
+        "outcomes_complete": False,
+        "points": [],
+        "notes": [],
+    }
+    try:
+        client = get_alpaca_client()
+    except Exception:
+        account["notes"] = ["Alpaca paper credentials are not configured."]
+        return _finish(account, period, now)
+    valuation, history = await asyncio.gather(
+        _read(read_paper_valuation(client)),
+        _read(client.get_portfolio_history(period)),
+    )
+    if isinstance(valuation, Exception) or number(valuation.account.cash) is None:
+        account["notes"] = [
+            "Could not read the Alpaca paper account. Retry to reconnect."
+        ]
+        return _finish(account, period, now)
+    account.update(
+        status="online" if valuation.reliable else "partial",
+        equity=valuation.equity,
+        cash=valuation.account.cash,
+        deployed=(
+            sum(abs(p.market_value) for p in valuation.positions)
+            if valuation.reliable
+            else None
+        ),
+        valuation_adjusted=bool(valuation.adjusted_symbols),
+    )
+    account["notes"].extend(valuation.notes)
+    if not isinstance(history, Exception):
+        account["points"] = [
+            {"timestamp": stamp, "equity": value}
+            for stamp, value in zip(
+                history.get("timestamp", []), history.get("equity", [])
+            )
+        ]
+    else:
+        account["notes"].append("Portfolio history could not be loaded.")
+    if valuation.adjusted_since is not None:
+        # Historical broker points on/after the ex-date contain the same
+        # stale quantity. Do not draw their false cliff or invent marks.
+        account["points"] = [
+            p
+            for p in account["points"]
+            if time.strftime("%Y-%m-%d", time.gmtime(p["timestamp"]))
+            < valuation.adjusted_since.isoformat()
+        ]
+    if valuation.equity is not None:
+        account["points"].append({"timestamp": now, "equity": valuation.equity})
+    if valuation.fills_complete:
+        rows, complete = valuation.fills, True
+        outcomes, volume, matched = alpaca_outcomes(rows)
+        account.update(
+            outcomes=outcomes,
+            volume=volume if complete and matched else None,
+            outcomes_complete=complete and matched,
+        )
+        if not complete or not matched:
+            account["notes"].append(
+                "Closing-trade metrics need complete, matchable fill history."
+            )
+    else:
+        account["notes"].append("Closing-trade history is incomplete.")
+    _merge_observed(account, now)
+    return _finish(account, period, now)
+
+
+def _merge_observed(account: dict, now: float) -> None:
+    """Record the equity just read and merge everything the dashboard observed before.
+
+    The broker's own history is daily for long ranges and may be withheld after a
+    corporate action, which left long stretches with only a stale last point. Observed
+    marks fill that in from now on without inventing any.
+    """
+    if account.get("status") != "online" or account.get("equity") is None:
+        return
+    try:
+        observed = record_observation("alpaca", now, account["equity"])
+    except (OSError, ValueError):
+        logger.exception("Could not record Alpaca dashboard history")
+        return
+    account["points"] = [*account["points"], *observed]
+
+
+# (account id, label, service getter). Ids are the history-file keys, so "kraken_sim"
+# keeps the spot trader's existing history. Labels match the Portfolio tabs.
+KRAKEN_DESKS = (
+    ("kraken_sim", "krakenSimHodl", get_sim_service),
+    ("kraken_mm", "krakenSimMM", get_mm_service),
+    ("kraken_fut", "krakenSimFutures", get_fut_service),
+)
+KRAKEN_DESK_START = 50_000.0  # Placeholder only; a reachable desk reports its own.
+
+
+async def _kraken(
+    account_id: str, label: str, service, period: str, now: float
+) -> dict:
+    account = {
+        "id": account_id,
+        "label": label,
+        "status": "unavailable",
+        "starting_capital": KRAKEN_DESK_START,
+        "equity": None,
+        "cash": None,
+        "deployed": None,
+        "order_cap": 2500,
+        "volume": None,
+        "fees": None,
+        "outcomes_complete": False,
+        "points": [],
+        "notes": [],
+    }
+    result = await _read(service().dashboard())
+    if isinstance(result, Exception):
+        account["notes"] = [
+            f"Could not mark {label} holdings using current Kraken prices."
+        ]
+        return _finish(account, period, now)
+    account.update(
+        status="online",
+        starting_capital=float(result["start_cash"]),
+        equity=float(result["equity"]),
+        cash=float(result["cash"]),
+        deployed=float(result["gross_exposure"]),
+        order_cap=float(result["max_order_notional"]),
+        volume=float(result["volume"]),
+        fees=float(result["fees"]),
+        outcomes=result["outcomes"],
+        outcomes_complete=True,
+    )
+    try:
+        account["points"] = record_equity(
+            account_id,
+            now,
+            account["equity"],
+            created=result["created"],
+            starting=account["starting_capital"],
+        )
+    except (OSError, ValueError):
+        logger.exception("Could not record %s dashboard history", label)
+        account["points"] = [{"timestamp": now, "equity": account["equity"]}]
+        account["notes"].append("Equity history could not be saved.")
+    return _finish(account, period, now)
+
+
+def _combined(accounts: list[dict], now: float) -> dict:
+    complete = all(a["status"] == "online" for a in accounts)
+
+    def total(key):
+        values = [a.get(key) for a in accounts]
+        return sum(values) if all(v is not None for v in values) else None
+
+    starting, equity = total("starting_capital"), total("equity")
+    histories = [a["points"] for a in accounts]
+    stamps = sorted({p["timestamp"] for rows in histories for p in rows})
+    series = []
+    indexes = [[p["timestamp"] for p in rows] for rows in histories]
+    for stamp in stamps:
+        values = []
+        for account, rows, index in zip(accounts, histories, indexes):
+            position = bisect_right(index, stamp) - 1
+            # Do not backfill an unobserved simulation with invented prices.
+            # Alpaca is observed every five minutes, so its last mark is only carried
+            # across a closed overnight. A longer carry drew a false cliff when a stale
+            # mark met a fresh one.
+            tolerance = 86400 if account["id"] == "alpaca" else 900
+            if position < 0 or stamp - rows[position]["timestamp"] > tolerance:
+                break
+            values.append(rows[position]["equity"])
+        if len(values) == len(accounts):
+            series.append({"timestamp": stamp, "equity": sum(values)})
+    wins, count = total("wins"), total("closed_trades")
+    summary = {
+        "id": "all",
+        "label": "All paper accounts",
+        "status": "online" if complete else "partial",
+        "starting_capital": starting,
+        "equity": equity,
+        "cash": total("cash"),
+        "deployed": total("deployed"),
+        "pnl": equity - starting if equity is not None else None,
+        "roi_pct": (
+            (equity / starting - 1) * 100
+            if equity is not None and starting > 0
+            else None
+        ),
+        "batting_average": wins / count * 100 if count else None,
+        "wins": wins,
+        "closed_trades": count,
+        "losses": total("losses"),
+        "breakeven": total("breakeven"),
+        "volume": total("volume"),
+        "fees": total("fees"),
+        "points": series,
+        "notes": [note for account in accounts for note in account.get("notes", [])],
+        "valuation_adjusted": any(a.get("valuation_adjusted") for a in accounts),
+        "outcomes_complete": all(a["outcomes_complete"] for a in accounts),
+        "profit_factor": (
+            total("gross_profit") / total("gross_loss")
+            if total("gross_loss") and total("gross_profit") is not None
+            else None
+        ),
+    }
+    summary.update(risk_metrics(series, now))
+    return summary
+
+
+@router.get("/paper")
+async def paper_dashboard(
+    range: Literal["1D", "1W", "1M", "3M"] = Query("1M"),
+    user: WebUser = Depends(get_current_user),
+):
+    require_admin(user)
+    key = (str(data_dir()), range)
+    cached = _cache.get(key)
+    if cached and time.monotonic() - cached[0] < 25:
+        return cached[1]
+
+    async def load():
+        now = time.time()
+        accounts = list(
+            await asyncio.gather(
+                _alpaca(range, now),
+                *(
+                    _kraken(account_id, label, service, range, now)
+                    for account_id, label, service in KRAKEN_DESKS
+                ),
+            )
+        )
+        response = {
+            "as_of": now,
+            "range": range,
+            "mode": "paper",
+            "accounts": accounts,
+            "summary": _combined(accounts, now),
+        }
+        if len(_cache) > 16:
+            _cache.clear()
+        _cache[key] = (time.monotonic(), response)
+        return response
+
+    return await _flights.run(key, load)

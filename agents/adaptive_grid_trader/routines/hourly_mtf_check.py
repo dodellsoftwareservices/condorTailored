@@ -5,6 +5,7 @@ import math
 from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
 
+from condor.venues import data_connector_for
 from config_manager import get_client
 
 logger = logging.getLogger(__name__)
@@ -15,8 +16,8 @@ CATEGORY = "Analysis"
 class Config(BaseModel):
     """Multi-timeframe analysis for the one-way-only adaptive grid trader."""
 
-    trading_pair: str = Field(default="BTC-USDT")
-    connector_name: str = Field(default="binance_perpetual")
+    trading_pair: str = Field(default="BTC-USDC")
+    connector_name: str = Field(default="lighter_perpetual")
     lifetime_hours: float = Field(
         default=8.0,
         description="Expected grid lifetime for range calculation (6-12h typical due to anti-flip rule)",
@@ -198,18 +199,21 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
         return "No server available"
 
     # -- 1. Fetch three timeframes in parallel --
+    # Candles are market data, which the API serves for mainnet venues only, so a
+    # test venue reads them from its mainnet counterpart.
+    data_connector = data_connector_for(config.connector_name)
     try:
         raw_1h, raw_4h, raw_1d = await asyncio.gather(
             client.market_data.get_candles(
-                config.connector_name, config.trading_pair, "1h", max_records=50
+                data_connector, config.trading_pair, "1h", max_records=50
             ),
             # _trend_direction needs slow EMA period + 2 = 23 candles minimum,
             # so keep a margin above that or the timeframe reads NEUTRAL forever.
             client.market_data.get_candles(
-                config.connector_name, config.trading_pair, "4h", max_records=60
+                data_connector, config.trading_pair, "4h", max_records=60
             ),
             client.market_data.get_candles(
-                config.connector_name, config.trading_pair, "1d", max_records=60
+                data_connector, config.trading_pair, "1d", max_records=60
             ),
         )
     except Exception as e:
@@ -438,5 +442,12 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
         )
     else:
         lines.append("actionable_levels: NONE")
+    if data_connector != config.connector_name:
+        # The levels above are priced off the data venue's candles, not off quotes on
+        # the venue the grid is placed on.
+        lines.append(
+            f"data_venue: candles from {data_connector} "
+            f"(stand-in for {config.connector_name}); levels are on its price scale"
+        )
     lines.append(f"Rationale: {rationale}")
     return "\n".join(lines)

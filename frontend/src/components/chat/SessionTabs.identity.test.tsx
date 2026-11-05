@@ -71,13 +71,11 @@ afterEach(() => {
 });
 
 describe("SessionTabs identity", () => {
-  it("calls an unbound session Condor rather than the model", async () => {
-    // The backend labels an unbound session "Condor"; an older one sends none
-    // at all, and the tab has to land on the same word either way — it is what
-    // `ChatRail` calls the very same conversation, one click away.
-    await render([slot({ agent_slug: "", agent_key: "claude_acp" })]);
+  it.each([undefined, "Condor", "Conder", "Griffin"])("calls an unbound session Griffin with backend label %s", async (label) => {
+    // Existing sessions can still carry the old name until their next turn.
+    await render([slot({ agent_slug: "", agent_key: "claude_acp", label })]);
 
-    expect(tabs()[0].textContent).toContain("Condor");
+    expect(tabs()[0].textContent).toContain("Griffin");
     expect(tabs()[0].textContent).not.toContain("Claude");
     // Nothing hand-truncates a label any more: no promise of a longer name.
     expect(tabs()[0].textContent).not.toContain("...");
@@ -97,12 +95,12 @@ describe("SessionTabs identity", () => {
   it("keeps the server reachable in the tooltip of a background tab", async () => {
     await render([
       slot({ slot_id: "a", agent_slug: "arb", label: "Arbitrage", server_name: "brigado_2" }),
-      slot({ slot_id: "b", agent_slug: "", label: "Condor" }),
+      slot({ slot_id: "b", agent_slug: "", label: "Griffin" }),
     ]);
 
     expect(tabs()[0].getAttribute("title")).toBe("Arbitrage — brigado_2");
     // No server, no dangling separator.
-    expect(tabs()[1].getAttribute("title")).toBe("Condor");
+    expect(tabs()[1].getAttribute("title")).toBe("Griffin");
   });
 
   it("still numbers two chats with the same agent", async () => {
@@ -126,6 +124,6 @@ describe("SessionTabs identity", () => {
 
     expect(tabs()[0].textContent).not.toContain("#");
     expect(tabs()[1].textContent).toContain("#2");
-    expect(tabs()[1].getAttribute("title")).toBe("Condor #2");
+    expect(tabs()[1].getAttribute("title")).toBe("Griffin #2");
   });
 });

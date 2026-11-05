@@ -11,17 +11,19 @@ import {
   ArrowUpRight,
   ArrowDownRight,
 } from "lucide-react";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { NoServerCard } from "@/components/NoServerCard";
 import { PositionsTab } from "@/components/portfolio/PositionsTab";
+import { SIM_TAB_LABEL, simAssetGroup, simPositions, useSimAccount, type SimVariant } from "@/components/portfolio/simAccountData";
 import { useLpPositions } from "@/hooks/useLpPositions";
 import { useRates } from "@/hooks/useRates";
 import { useServer } from "@/hooks/useServer";
 import { useCondorWebSocket } from "@/hooks/useWebSocket";
 import {
   api,
+  errorStatus,
   type AgentSummary,
   type BalanceItem,
   type ConnectorBalance,
@@ -32,6 +34,8 @@ import {
 import { formatCurrency, formatCurrencyPnl, formatCurrencyVolume, isExecutorActive } from "@/lib/formatters";
 import { agentsQuery, EXECUTORS_REFETCH_MS, executorsQuery } from "@/lib/queryClient";
 import { getThemeColors } from "@/lib/theme-colors";
+
+import "@/components/ui/workspace-surfaces.css";
 
 // ── Formatters ──
 
@@ -56,7 +60,7 @@ function formatTokenPrice(val: number, symbol = "$") {
 function getChartColors() {
   const tc = getThemeColors();
   return [
-    "#d4a845", // gold
+    tc.primary,
     tc.green,   // green (theme-aware)
     "#6366f1", // indigo
     tc.red,     // red (theme-aware)
@@ -64,7 +68,7 @@ function getChartColors() {
     "#8b5cf6", // violet
     "#ec4899", // pink
     "#14b8a6", // teal
-    "#f97316", // orange
+    "#9bb4cf", // steel blue
     "#a78bfa", // light violet
   ];
 }
@@ -89,10 +93,10 @@ function KpiCell({
   currencySymbol?: string;
 }) {
   return (
-    <div className="flex-1 px-5 py-3 min-w-0">
+    <div className="portfolio-kpi">
       <span className="text-[11px] uppercase tracking-wider font-medium text-[var(--color-text-muted)]">{label}</span>
-      <div className="flex items-baseline gap-2.5 mt-1">
-        <span className="text-2xl font-bold tabular-nums tracking-tight leading-none">{mainValue}</span>
+      <div className="portfolio-kpi-value">
+        <span className="portfolio-kpi-number">{mainValue}</span>
         {pnl !== undefined && pnl !== null && (
           <span className="inline-flex items-center gap-0.5 text-sm tabular-nums font-semibold"
             style={{ color: pnl >= 0 ? "var(--color-green)" : "var(--color-red)" }}>
@@ -101,7 +105,7 @@ function KpiCell({
           </span>
         )}
       </div>
-      <div className="text-xs text-[var(--color-text-muted)] mt-1 truncate">{details}</div>
+      <div className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">{details}</div>
     </div>
   );
 }
@@ -145,11 +149,10 @@ function DashboardStrip({
   const agentPnl = agents.reduce((s, a) => s + (a.latest_session_pnl ?? 0), 0);
   const agentSessions = agents.reduce((s, a) => s + (a.session_count ?? 0), 0);
 
-  const btnClass = "flex items-center justify-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)] w-full";
+  const btnClass = "workspace-button";
 
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
-      <div className="flex items-stretch divide-x divide-[var(--color-border)]">
+    <div className="portfolio-summary" aria-label="Portfolio summary">
         <KpiCell
           label="Portfolio"
           mainValue={formatCurrency(convertFromUsd(totalUsd), currencySymbol)}
@@ -187,17 +190,13 @@ function DashboardStrip({
         />
 
         {/* ── Period + Quick Links ── */}
-        <div className="flex flex-col justify-center gap-1 px-2.5 py-2 shrink-0 w-[100px]">
-          <div className="flex gap-0.5 rounded-md border border-[var(--color-border)] p-0.5 bg-[var(--color-bg)] w-full justify-center">
+        <div className="portfolio-summary-tools">
+          <div className="portfolio-periods" role="group" aria-label="Portfolio period">
             {TIME_PERIODS.map((p) => (
               <button
                 key={p}
                 onClick={() => onPeriodChange(p)}
-                className={`px-1.5 py-1 text-[10px] rounded font-medium transition-colors flex-1 ${
-                  period === p
-                    ? "bg-[var(--color-accent)] text-white shadow-sm"
-                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                }`}
+                aria-pressed={period === p}
               >
                 {p}
               </button>
@@ -212,7 +211,6 @@ function DashboardStrip({
             Servers
           </button>
         </div>
-      </div>
     </div>
   );
 }
@@ -328,11 +326,15 @@ function ConnectorRow({
   totalPortfolio,
   convertFromUsd,
   currencySymbol,
+  simulated = false,
+  activity,
 }: {
   connector: ConnectorBalance;
   totalPortfolio: number;
   convertFromUsd: (val: number) => number;
   currencySymbol: string;
+  simulated?: boolean;
+  activity?: { label: string; running: boolean };
 }) {
   const [expanded, setExpanded] = useState(true);
   const Chevron = expanded ? ChevronDown : ChevronRight;
@@ -345,9 +347,12 @@ function ConnectorRow({
         onClick={() => setExpanded(!expanded)}
       >
         <td className="px-4 py-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Chevron className="h-4 w-4 text-[var(--color-text-muted)]" />
             <span className="font-semibold">{connector.connector}</span>
+            <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${simulated ? "border-[var(--color-primary)]/40 text-[var(--color-primary)]" : "border-[var(--color-border)] text-[var(--color-text-muted)]"}`}>
+              {simulated ? "Simulated · no real funds" : /testnet|paper_trade|sandbox/i.test(connector.connector) ? "Testnet · no real funds" : "Real funds"}
+            </span>
             <span className="text-xs text-[var(--color-text-muted)]">
               {connector.balances.length} token{connector.balances.length !== 1 ? "s" : ""}
             </span>
@@ -361,14 +366,15 @@ function ConnectorRow({
             )}
           </div>
         </td>
-        <td className="px-4 py-3" />
-        <td className="px-4 py-3" />
+        <td colSpan={2} className="px-4 py-3 text-right text-xs" style={{ color: activity?.running ? "var(--color-text-muted)" : "var(--color-red)" }}>
+          {activity?.label}
+        </td>
         <td className="px-4 py-3 text-right font-semibold tabular-nums">
           {formatCurrency(convertFromUsd(connector.total_usd), currencySymbol)}
         </td>
         <td className="px-4 py-3">
           <span className="text-sm tabular-nums text-[var(--color-text-muted)]">
-            {pct.toFixed(1)}%
+            {simulated ? "Account allocation" : `${pct.toFixed(1)}%`}
           </span>
         </td>
       </tr>
@@ -407,28 +413,41 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
   const [stacked, setStacked] = useState(false);
   const [hover, setHover] = useState<{ x: number; point: PortfolioHistoryPoint } | null>(null);
   const queryClient = useQueryClient();
+  const chartContainer = useRef<HTMLDivElement>(null);
+  const [chartWidth, setChartWidth] = useState(800);
+
+  useEffect(() => {
+    const container = chartContainer.current;
+    if (!container) return;
+    const observer = new ResizeObserver(([entry]) => {
+      // Draw in actual CSS pixels so axes remain readable in a narrow pane.
+      if (entry.contentRect.width > 0) setChartWidth(Math.round(entry.contentRect.width));
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!server) return;
     TIME_PERIODS.forEach((r) => {
       queryClient.prefetchQuery({
-        queryKey: ["portfolio-history", server, r],
-        queryFn: () => api.getPortfolioHistory(server, r),
+        queryKey: ["portfolio-history", server, r, "live"],
+        queryFn: () => api.getPortfolioHistory(server, r, false, true),
         staleTime: 60000,
       });
     });
   }, [server, queryClient]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["portfolio-history", server, range],
-    queryFn: () => api.getPortfolioHistory(server, range),
+    queryKey: ["portfolio-history", server, range, "live"],
+    queryFn: () => api.getPortfolioHistory(server, range, false, true),
     enabled: !!server,
     refetchInterval: 60000,
   });
 
   const { data: breakdownData } = useQuery({
-    queryKey: ["portfolio-history-breakdown", server, range],
-    queryFn: () => api.getPortfolioHistory(server, range, true),
+    queryKey: ["portfolio-history-breakdown", server, range, "live"],
+    queryFn: () => api.getPortfolioHistory(server, range, true, true),
     enabled: !!server && stacked,
     refetchInterval: 60000,
   });
@@ -449,7 +468,7 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
     [rawPoints, convertFromUsd]
   );
 
-  const W = 800;
+  const W = chartWidth;
   const H = 250;
   const PAD = { top: 20, right: 16, bottom: 30, left: 64 };
   const plotW = W - PAD.left - PAD.right;
@@ -525,13 +544,13 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
 
     return { minTs, tsRange, toX, toY, stackedAreaPaths, linePath, areaPath, yTicks, xTicks };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, stacked, topTokens]);
+  }, [points, stacked, topTokens, W]);
 
   const chartColors = getChartColors();
   const stackedAreas = stackedAreaPaths.map((area, ti) => ({ ...area, color: chartColors[ti % chartColors.length] }));
 
   // Handle mouse move
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (points.length === 0) return;
     const svg = e.currentTarget;
     const rect = svg.getBoundingClientRect();
@@ -580,6 +599,7 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
         </div>
       </div>
 
+      <div ref={chartContainer} className="min-w-0">
       {isLoading ? (
         <div className="flex items-center justify-center h-[250px] text-[var(--color-text-muted)] text-sm">
           Loading...
@@ -593,9 +613,27 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
           <svg
             viewBox={`0 0 ${W} ${H}`}
             width="100%"
+            height={H}
             className="overflow-visible"
-            onMouseMove={handleMouseMove}
-            onMouseLeave={() => setHover(null)}
+            role="img"
+            aria-label={`Portfolio value over ${range}. Use arrow keys to inspect values.`}
+            tabIndex={0}
+            onPointerMove={handlePointerMove}
+            onPointerDown={handlePointerMove}
+            onPointerLeave={(event) => { if (event.pointerType !== "touch") setHover(null); }}
+            onPointerCancel={() => setHover(null)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") { setHover(null); return; }
+              const index = hover ? points.findIndex((point) => point.timestamp === hover.point.timestamp) : -1;
+              let next: number;
+              if (event.key === "Home") next = 0;
+              else if (event.key === "End") next = points.length - 1;
+              else if (event.key === "ArrowRight") next = Math.min(points.length - 1, index + 1);
+              else if (event.key === "ArrowLeft") next = index < 0 ? points.length - 1 : Math.max(0, index - 1);
+              else return;
+              event.preventDefault();
+              setHover({ x: toX(points[next].timestamp), point: { ...points[next], tokens: points[next].tokens } });
+            }}
           >
             <defs>
               <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
@@ -724,6 +762,9 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
               fill="transparent"
             />
           </svg>
+          <span className="sr-only" aria-live="polite">
+            {hover ? `${formatTooltipDate(hover.point.timestamp, range)}: ${formatCurrency(hover.point.total_usd, currencySymbol)}` : ""}
+          </span>
 
           {/* Legend for stacked mode */}
           {stacked && topTokens.length > 0 && (
@@ -741,6 +782,7 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -759,7 +801,22 @@ export function Portfolio() {
   // A tab is a real address here (Bots.tsx idiom): the default clears the param
   // rather than writing it, so `/portfolio` stays the canonical URL for Assets.
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab: PortfolioTab = searchParams.get("tab") === "positions" ? "positions" : "assets";
+  const rawTab = searchParams.get("tab");
+  const tab: PortfolioTab = rawTab === "positions" ? "positions" : "assets";
+  const simHodl = useSimAccount("hodl", false);
+  const simMm = useSimAccount("mm", false);
+  const simFut = useSimAccount("fut", false);
+  const simAccounts = useMemo(() => ([
+    { variant: "hodl" as SimVariant, pf: simHodl.pf },
+    { variant: "mm" as SimVariant, pf: simMm.pf },
+    { variant: "fut" as SimVariant, pf: simFut.pf },
+  ]), [simHodl.pf, simMm.pf, simFut.pf]);
+  const simAssets = useMemo(() => simAccounts.flatMap(({ variant, pf }) => pf ? [simAssetGroup(variant, pf)] : []), [simAccounts]);
+  const simulatedHolds = useMemo(() => simAccounts.flatMap(({ variant, pf }) => pf ? simPositions(variant, pf) : []), [simAccounts]);
+  const simsLoading = simHodl.isLoading || simMm.isLoading || simFut.isLoading;
+  const unavailableSims = ([
+    ["hodl", simHodl.error], ["mm", simMm.error], ["fut", simFut.error],
+  ] as const).filter(([, error]) => error && errorStatus(error) !== 403).map(([variant]) => SIM_TAB_LABEL[variant]);
   const setTab = (next: PortfolioTab) => {
     if (next === "assets") setSearchParams({}, { replace: true });
     else setSearchParams({ tab: next }, { replace: true });
@@ -827,10 +884,25 @@ export function Portfolio() {
   });
 
   const { data: agents } = useQuery(agentsQuery());
+  const deskActivity = (variant: SimVariant) => {
+    if (variant === "mm") {
+      return simMm.maker
+        ? { label: simMm.maker.halted ? `Market maker halted: ${simMm.maker.halted}` : simMm.maker.running ? "Market maker running" : "Market maker stopped", running: simMm.maker.running && !simMm.maker.halted }
+        : { label: "Desk status unavailable", running: false };
+    }
+    const agent = agents?.find((a) => a.slug === (variant === "hodl" ? "sim_crypto_trader" : "sim_futures_trader"));
+    const running = agent?.status === "running" || agent?.status === "active";
+    const frequency = agent?.instances?.find((instance) => instance.status === "running")?.frequency_sec;
+    const cadence = frequency === 3600 ? "hourly reviews" : frequency ? `${Math.round(frequency / 60)}m reviews` : "";
+    return {
+      label: running ? `Running${cadence ? ` · ${cadence}` : ""}` : agent ? "Desk stopped" : "Desk status unavailable",
+      running,
+    };
+  };
 
   const { data: periodHistory } = useQuery({
-    queryKey: ["portfolio-history", server, period],
-    queryFn: () => api.getPortfolioHistory(server!, period),
+    queryKey: ["portfolio-history", server, period, "live"],
+    queryFn: () => api.getPortfolioHistory(server!, period, false, true),
     enabled: !!server,
     refetchInterval: 60000,
   });
@@ -850,8 +922,9 @@ export function Portfolio() {
     () => [
       ...(positionsData?.executor_positions ?? []),
       ...(positionsData?.bot_positions ?? []),
+      ...simulatedHolds,
     ],
-    [positionsData],
+    [positionsData, simulatedHolds],
   );
 
   // Liquidity — shared with the /dex strip, and deliberately not derived from
@@ -923,7 +996,7 @@ export function Portfolio() {
 
   if (error && !data) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="flex items-center justify-center min-h-[calc(var(--app-viewport-height)*0.6)]">
         <div className="rounded-lg border border-red-500/30 bg-[var(--color-surface)] p-8 text-center max-w-sm">
           <AlertCircle className="h-10 w-10 mx-auto mb-3 text-[var(--color-red)]" />
           <h2 className="text-lg font-semibold mb-1">Failed to Load Portfolio</h2>
@@ -968,7 +1041,7 @@ export function Portfolio() {
   const topTokens = allTokens.slice(0, 8);
 
   return (
-    <div className={`space-y-6 transition-opacity duration-300 ${isPlaceholderData ? "opacity-60" : "opacity-100"}`}>
+    <div className={`portfolio-page space-y-6 transition-opacity duration-300 ${isPlaceholderData ? "opacity-60" : "opacity-100"}`}>
       {/* Dashboard Strip */}
       <DashboardStrip
         totalUsd={totalUsd}
@@ -1003,7 +1076,7 @@ export function Portfolio() {
 
       {/* Assets | Positions — the header above describes the whole portfolio,
           so it stays above the split. */}
-      <div className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1 w-fit">
+      <div role="tablist" aria-label="Portfolio view" className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1 w-fit">
         {([
           { key: "assets" as const, label: "Assets", icon: Wallet, count: null },
           {
@@ -1012,11 +1085,13 @@ export function Portfolio() {
             icon: Layers,
             // A flash of `(0)` on a portfolio that has seven positions is worse
             // than a beat of no badge, so it waits for both queries.
-            count: isLoadingHolds || isLoadingLp ? null : holds.length + lpPositions.length,
+            count: isLoadingHolds || isLoadingLp || simsLoading ? null : holds.length + lpPositions.length,
           },
         ]).map(({ key, label, icon: Icon, count }) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === key
@@ -1032,19 +1107,21 @@ export function Portfolio() {
           </button>
         ))}
       </div>
+      {unavailableSims.length > 0 && <p role="status" className="text-xs text-[var(--color-red)]">Could not refresh {unavailableSims.join(", ")}. Any rows still shown use the last successful observation.</p>}
 
       {/* Both tabs stay mounted and the inactive one is hidden: this is a
           toggle, not a route change, and the balance table is expensive to
           rebuild. Deferring the mount buys nothing — the queries behind
           Positions run at page level anyway, for the tab badge. */}
       <div style={{ display: tab === "assets" ? undefined : "none" }}>
-        {connectors.length === 0 ? (
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">Live totals exclude simulators. Simulated allocations are per account; futures collateral is in Assets and contract exposure is in Positions.</p>
+        {connectors.length === 0 && simAssets.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-16 text-[var(--color-text-muted)]">
             <Wallet className="h-10 w-10" />
             <p>No balances found</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-[var(--color-border)]">
+          <div className="portfolio-table-scroll" role="region" aria-label="Portfolio assets, scroll horizontally for all columns" tabIndex={0}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -1069,6 +1146,9 @@ export function Portfolio() {
                 {connectors.map((c) => (
                   <ConnectorRow key={c.connector} connector={c} totalPortfolio={totalUsd} convertFromUsd={convertFromUsd} currencySymbol={currencySymbol} />
                 ))}
+                {simAssets.map((c) => (
+                  <ConnectorRow key={c.connector} connector={c} totalPortfolio={c.total_usd} convertFromUsd={convertFromUsd} currencySymbol={currencySymbol} simulated activity={deskActivity(c.variant)} />
+                ))}
               </tbody>
             </table>
           </div>
@@ -1080,12 +1160,13 @@ export function Portfolio() {
           holds={holds}
           lpPositions={lpPositions}
           lpLabel={lpLabel}
-          isLoading={isLoadingHolds || isLoadingLp}
+          isLoading={isLoadingHolds || isLoadingLp || simsLoading}
           convert={convert}
           formatValue={formatValueDetailed}
           formatPnlValue={formatPnlValue}
         />
       </div>
+
     </div>
   );
 }

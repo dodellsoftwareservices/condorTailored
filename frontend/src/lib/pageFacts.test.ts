@@ -38,8 +38,9 @@ describe("routeFacts", () => {
     expect(routeFacts("/floor", "?basis=rel&range=7d")).toBeNull();
   });
 
-  it("says nothing on the home, which is the chat", () => {
-    expect(routeFacts("/", "")).toBeNull();
+  it("describes the dashboard and keeps conversation links out of page context", () => {
+    expect(routeFacts("/", "")?.label).toBe("Portfolio dashboard");
+    expect(routeFacts("/agents", "")).toBeNull();
     // Whatever the URL carries: `?agent=` and `?ask=` (FEAT-092) and
     // `?conversation=` (FEAT-111) are the chat's own parameters, and a bare
     // `/` is the chat too. Describing a chat to the agent in it is noise.

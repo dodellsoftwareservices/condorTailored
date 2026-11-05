@@ -33,6 +33,11 @@ describe("the nav", () => {
     expect(paths).toContain("/bots");
   });
 
+  it("has no Get Started entry: the guide is a side panel, not a page", () => {
+    const paths: string[] = NAV_ITEMS.map((item) => item.to);
+    expect(paths).not.toContain("/get-started");
+  });
+
   it("gives every nav entry a distinct address and label", () => {
     expect(new Set(NAV_ITEMS.map((i) => i.to)).size).toBe(NAV_ITEMS.length);
     expect(new Set(NAV_ITEMS.map((i) => i.label)).size).toBe(NAV_ITEMS.length);
@@ -47,10 +52,11 @@ describe("full bleed", () => {
     expect(FULL_BLEED_ROUTES as readonly string[]).not.toContain("/floor");
   });
 
-  it("includes the home, which scrolls its own transcript", () => {
+  it("gives the chat its viewport and keeps dashboard page spacing", () => {
     // It was answered by `FULL_BLEED_HOME_VIEWS` while `/` mounted two screens.
     // The chat scrolls its transcript and does not want `main`'s padding.
-    expect(FULL_BLEED_ROUTES).toContain("/");
+    expect(FULL_BLEED_ROUTES).toContain("/agents");
+    expect(FULL_BLEED_ROUTES).not.toContain("/");
     // And the fleet is not a route with a body any more (FEAT-114), so a
     // layout rule for it would be a rule about a redirect.
     expect(FULL_BLEED_ROUTES as readonly string[]).not.toContain("/fleet");

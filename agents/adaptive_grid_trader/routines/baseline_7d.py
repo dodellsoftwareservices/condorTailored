@@ -4,6 +4,7 @@ import statistics
 from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
 
+from condor.venues import data_connector_for
 from config_manager import get_client
 
 logger = logging.getLogger(__name__)
@@ -14,8 +15,8 @@ CATEGORY = "Analysis"
 class Config(BaseModel):
     """Compute 7-day baseline stats: ATR, range, trend for a perpetual pair."""
 
-    trading_pair: str = Field(default="BTC-USDT")
-    connector_name: str = Field(default="binance_perpetual")
+    trading_pair: str = Field(default="BTC-USDC")
+    connector_name: str = Field(default="lighter_perpetual")
     atr_period: int = Field(default=14, description="Candles for ATR calculation")
 
 
@@ -79,9 +80,12 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
         return "No server available"
 
     # --- Fetch 7 days of 1h candles ---
+    # Candles are market data, which the API serves for mainnet venues only, so a
+    # test venue reads them from its mainnet counterpart.
+    data_connector = data_connector_for(config.connector_name)
     try:
         result = await client.market_data.get_candles(
-            config.connector_name,
+            data_connector,
             config.trading_pair,
             interval="1h",
             max_records=168,
@@ -256,6 +260,11 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
         f"Trend: {trend_direction} / {trend_strength}  |  EMA20: ${ema20_val:,.2f}  |  EMA50: ${ema50_val:,.2f}\n"
         f"Price vs EMAs: {price_vs_emas}  |  48h Slope: {price_slope:+.2f}%"
     )
+    if data_connector != config.connector_name:
+        summary += (
+            f"\nData venue: candles from {data_connector} "
+            f"(stand-in for {config.connector_name})"
+        )
     if report_id:
         summary += f"\nReport: {report_id}"
     return summary

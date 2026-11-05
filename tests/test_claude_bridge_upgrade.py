@@ -544,17 +544,68 @@ def test_setup_upgrades_an_outdated_default_bridge(tmp_path, monkeypatch, capsys
     monkeypatch.setattr(
         setup_llm.subprocess,
         "run",
-        lambda cmd, shell=False: ran.append((cmd, shell))
-        or SimpleNamespace(returncode=0),
+        lambda cmd: ran.append(cmd) or SimpleNamespace(returncode=0),
     )
 
     assert setup_llm.main([]) == 0
-    assert ran == [("npm up", True)]
+    # No shell: one argument list per " && "-separated step (here, one step).
+    assert ran == [["npm", "up"]]
     assert "installed and logged in" in capsys.readouterr().out
 
 
 def test_setup_leaves_a_missing_bridge_to_the_installer():
     assert setup_llm._upgrade_bridge(Readiness(MISSING, "not installed")) is False
+
+
+def test_upgrade_bridge_runs_each_joined_step_as_its_own_command(monkeypatch):
+    """The real shape outdated_bridge() builds: uninstall the deprecated
+    package, then install the current one — two commands, no shell between
+    them, each run as its own argument list."""
+    ran = []
+    monkeypatch.setattr(
+        setup_llm.subprocess,
+        "run",
+        lambda cmd: ran.append(cmd) or SimpleNamespace(returncode=0),
+    )
+    state = Readiness(
+        UNVERIFIED,
+        "outdated",
+        upgrade=(
+            "/usr/bin/npm uninstall -g @zed-industries/claude-agent-acp && "
+            "/usr/bin/npm install -g @agentclientprotocol/claude-agent-acp@latest"
+        ),
+    )
+
+    assert setup_llm._upgrade_bridge(state) is True
+
+    assert ran == [
+        ["/usr/bin/npm", "uninstall", "-g", "@zed-industries/claude-agent-acp"],
+        [
+            "/usr/bin/npm",
+            "install",
+            "-g",
+            "@agentclientprotocol/claude-agent-acp@latest",
+        ],
+    ]
+
+
+def test_upgrade_bridge_stops_at_the_first_failing_step(monkeypatch):
+    ran = []
+
+    def fake_run(cmd):
+        ran.append(cmd)
+        return SimpleNamespace(returncode=1 if "uninstall" in cmd else 0)
+
+    monkeypatch.setattr(setup_llm.subprocess, "run", fake_run)
+    state = Readiness(
+        UNVERIFIED,
+        "outdated",
+        upgrade="npm uninstall -g old && npm install -g new",
+    )
+
+    assert setup_llm._upgrade_bridge(state) is False
+    # The uninstall ran; the install was never reached once it failed.
+    assert ran == [["npm", "uninstall", "-g", "old"]]
 
 
 def test_the_condor_update_upgrades_an_outdated_bridge(monkeypatch):

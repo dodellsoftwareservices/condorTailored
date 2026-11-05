@@ -133,9 +133,9 @@ describe("out-of-band notes", () => {
   });
 
   it("still renders a handover as a divider, not as a turn", () => {
-    render(message({ role: "system", kind: "switch", text: "Switched to Condor" }));
+    render(message({ role: "system", kind: "switch", text: "Switched to Griffin" }));
 
-    expect(container.textContent).toContain("Switched to Condor");
+    expect(container.textContent).toContain("Switched to Griffin");
     expect(container.querySelector("time")).toBeNull();
   });
 });

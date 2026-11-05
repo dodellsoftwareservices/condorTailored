@@ -14,8 +14,8 @@ top of that guaranteed floor. Now:
 - Read the `cancel_open_orders=` line in the state above: it says what the cancel
   actually achieved. Anything it reports as LEFT RESTING, UNKNOWN, or on a market
   with NOT carried out is still on the venue — go after those, and only those
-  (CEX or CLOB DEX — `hyperliquid`, `xrpl` and the like are plain Hummingbot
-  connectors, not Gateway). Close any leftover Gateway LP position (AMM/CLMM pools)
+  (CEX or CLOB DEX — `xrpl` and the like are plain Hummingbot
+  connectors, not Gateway; Hyperliquid is region-blocked and removed). Close any leftover Gateway LP position (AMM/CLMM pools)
   you can find for this session: those have no cancel path and are never swept.
 - If any position that should be closed is still open, close it (stop its executor
   with keep_position off, or place a reduce-only order).

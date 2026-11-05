@@ -4,7 +4,9 @@ Manages servers, users, permissions, and settings in a single config.yml file.
 """
 
 import asyncio
+import hashlib
 import logging
+import os
 import secrets
 import shutil
 import time
@@ -12,6 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
+import pyotp
 import yaml
 from aiohttp import ClientTimeout
 
@@ -59,12 +62,28 @@ ABSENT_USERNAME = "No username"
 # the panel renders.
 LAST_SEEN_RESOLUTION_SEC = 300
 
+# The dashboard's optional second login factor (TOTP). Same shape as
+# CODE_RUN_PREFERENCE: stored under user_preferences, but never written by a
+# bulk merge — the secret and the enabled flag each have their own setter, so
+# a PATCH /auth/preferences can never hand a seat its own 2FA state (or
+# silently switch it off) the way it could before code_run got the same fix.
+WEB_2FA_SECRET_PREF = "web_2fa_secret"
+WEB_2FA_ENABLED_PREF = "web_2fa_enabled"
+WEB_2FA_RECOVERY_PREF = "web_2fa_recovery_codes"
+
 # Preference keys that are capability grants rather than settings. They live in
 # the same ``user_preferences`` map as a UI toggle, so any endpoint that merges
 # a caller-supplied dict into that map is a privilege-escalation path unless it
 # refuses these first (SEC-250). Writing one goes through its own audited setter
 # — ``set_code_run_grant`` for ``code_run`` — never through a bulk merge.
-RESERVED_PREFERENCE_KEYS = frozenset({CODE_RUN_PREFERENCE})
+RESERVED_PREFERENCE_KEYS = frozenset(
+    {
+        CODE_RUN_PREFERENCE,
+        WEB_2FA_SECRET_PREF,
+        WEB_2FA_ENABLED_PREF,
+        WEB_2FA_RECOVERY_PREF,
+    }
+)
 
 #: Every top-level key of the install's ``config.yml``, in the order it is
 #: written, mapped to the factory that produces its default. One declaration,
@@ -115,9 +134,14 @@ class ConfigManager:
 
     _instance: Optional["ConfigManager"] = None
 
-    def __init__(self, config_path: str = "config.yml"):
-        self.config_path = Path(config_path)
-        self.audit_log_path = Path("audit_log.yml")
+    def __init__(self, config_path: str | None = None):
+        # Resolve once: a manager must not follow later changes to cwd.
+        self.config_path = (
+            Path(config_path or os.environ.get("CONDOR_CONFIG_PATH", "config.yml"))
+            .expanduser()
+            .resolve()
+        )
+        self.audit_log_path = self.config_path.with_name("audit_log.yml")
         self._data: dict = {}
         self._audit_log: list = []
         self._clients: Dict[str, Tuple[Any, float]] = (
@@ -152,7 +176,7 @@ class ConfigManager:
         self._load_audit_log()
 
     @classmethod
-    def instance(cls, config_path: str = "config.yml") -> "ConfigManager":
+    def instance(cls, config_path: str | None = None) -> "ConfigManager":
         """Get the singleton instance."""
         if cls._instance is None:
             cls._instance = cls(config_path)
@@ -580,6 +604,7 @@ class ConfigManager:
                 try:
                     await asyncio.wait_for(client.accounts.list_accounts(), timeout=5)
                     self._clients[name] = (client, time.time())
+                    await self._report_backend_health(name, True)
                     return client
                 except Exception:
                     logger.warning(
@@ -626,13 +651,36 @@ class ConfigManager:
             await client.accounts.list_accounts()
             self._clients[name] = (client, time.time())
             self._client_failures.pop(name, None)
+            await self._report_backend_health(name, True)
             logger.info(f"Connected to server '{name}' at {base_url}")
             return client
+        except asyncio.CancelledError:
+            try:
+                await client.close()
+            except Exception:
+                logger.debug("Cancelled client cleanup for %s", name, exc_info=True)
+            raise
         except Exception as e:
-            await client.close()
             self._client_failures[name] = time.time()
+            await self._report_backend_health(name, False)
+            try:
+                await client.close()
+            except Exception:
+                logger.debug("Failed client cleanup for %s", name, exc_info=True)
             logger.error(f"Failed to connect to '{name}': {e}")
             raise
+
+    async def _report_backend_health(self, name: str, healthy: bool) -> None:
+        try:
+            from condor.service_health import health
+
+            await health.report(
+                self.get_server_owner(name) or self.admin_id,
+                f"Trading backend {name}",
+                healthy,
+            )
+        except Exception:
+            logger.warning("Could not publish backend health", exc_info=True)
 
     async def get_client_for_chat(
         self, chat_id: int, user_id: int = None, preferred_server: str = None
@@ -1120,6 +1168,108 @@ class ConfigManager:
             admin_id,
         )
         return True
+
+    # =========================================================================
+    # TWO-FACTOR AUTHENTICATION (TOTP)
+    # =========================================================================
+
+    def has_2fa_enabled(self, user_id: int) -> bool:
+        """Whether this user has confirmed a TOTP factor for login."""
+        return bool(self.get_user_preference(user_id, WEB_2FA_ENABLED_PREF, False))
+
+    def get_totp_secret(self, user_id: int) -> Optional[str]:
+        """The user's stored TOTP secret, enrolled or not. None if never enrolled."""
+        return self.get_user_preference(user_id, WEB_2FA_SECRET_PREF, None)
+
+    def enroll_totp(self, user_id: int) -> Tuple[str, list]:
+        """Start (or restart) enrollment: generate a fresh secret and a set of
+        one-time recovery codes, store them, but leave 2FA OFF until
+        ``confirm_totp`` proves the user's device actually has the secret.
+
+        Returns ``(secret, recovery_codes)`` — the only time either is
+        available in plaintext; recovery codes are stored hashed, the same
+        way a password would be, so this method can never be used to read
+        them back out again.
+        """
+        if user_id not in self._data.get("users", {}):
+            raise ValueError(f"Unknown user {user_id}")
+
+        secret = pyotp.random_base32()
+        recovery_codes = [secrets.token_hex(5) for _ in range(8)]
+        hashed = [hashlib.sha256(code.encode()).hexdigest() for code in recovery_codes]
+
+        self.set_user_preference(user_id, WEB_2FA_SECRET_PREF, secret)
+        self.set_user_preference(user_id, WEB_2FA_RECOVERY_PREF, hashed)
+        self.delete_user_preference(user_id, WEB_2FA_ENABLED_PREF)
+
+        self._audit("2fa_enrolled", "user", str(user_id), user_id)
+        return secret, recovery_codes
+
+    def confirm_totp(self, user_id: int, code: str) -> bool:
+        """Verify the first code from a freshly-enrolled authenticator and, if
+        it checks out, flip 2FA on. Returns False on a bad code or if there's
+        no pending enrollment — never raises for a wrong code, since a typo
+        here is routine user input, not a programming error.
+        """
+        secret = self.get_totp_secret(user_id)
+        if not secret:
+            return False
+        if not pyotp.TOTP(secret).verify(code, valid_window=1):
+            return False
+
+        self.set_user_preference(user_id, WEB_2FA_ENABLED_PREF, True)
+        self._audit("2fa_confirmed", "user", str(user_id), user_id)
+        return True
+
+    def disable_totp(self, user_id: int, actor_id: int) -> bool:
+        """Turn 2FA off and forget the secret and recovery codes entirely —
+        a later re-enrollment starts from a clean slate. ``actor_id`` is the
+        user themself for a self-service disable, or an admin's id for the
+        locked-out-user escape hatch; either way it's recorded, since turning
+        off a second factor is exactly the kind of thing worth auditing.
+        """
+        if user_id not in self._data.get("users", {}):
+            return False
+        if self.get_totp_secret(user_id) is None:
+            return False
+
+        self.delete_user_preference(user_id, WEB_2FA_SECRET_PREF)
+        self.delete_user_preference(user_id, WEB_2FA_ENABLED_PREF)
+        self.delete_user_preference(user_id, WEB_2FA_RECOVERY_PREF)
+
+        self._audit(
+            "2fa_disabled",
+            "user",
+            str(user_id),
+            actor_id,
+            {"self_service": actor_id == user_id},
+        )
+        return True
+
+    def verify_totp_or_recovery(self, user_id: int, code: str) -> bool:
+        """Check a login-time code against the live TOTP secret first, then
+        against the unused recovery codes. A matching recovery code is
+        consumed (removed) so it can never be replayed — the one place this
+        feature deliberately allows a single-use bypass of the live factor,
+        for the person who's lost their authenticator.
+        """
+        if not self.has_2fa_enabled(user_id):
+            return False
+
+        code = (code or "").strip()
+        secret = self.get_totp_secret(user_id)
+        if secret and pyotp.TOTP(secret).verify(code, valid_window=1):
+            return True
+
+        hashed_input = hashlib.sha256(code.encode()).hexdigest()
+        recovery_hashes = self.get_user_preference(user_id, WEB_2FA_RECOVERY_PREF, [])
+        if hashed_input in recovery_hashes:
+            remaining = [h for h in recovery_hashes if h != hashed_input]
+            self.set_user_preference(user_id, WEB_2FA_RECOVERY_PREF, remaining)
+            self._audit("2fa_recovery_code_used", "user", str(user_id), user_id)
+            return True
+
+        return False
 
     # =========================================================================
     # SERVER ACCESS CONTROL

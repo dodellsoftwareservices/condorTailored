@@ -1,0 +1,31 @@
+{
+  "$schema": "./shift-profile.schema.json",
+  "name": "kraken-spot-8h",
+  "description": "Eight-hour supervised shift on the $50,000 simulated Kraken spot account. No real exchange keys or funds.",
+  "hours": 8,
+  "capitalQuote": 2500,
+  "model": "openrouter:deepseek/deepseek-v4.1-flash-1017",
+  "requestBudget": 300,
+  "loops": [
+    {
+      "id": "kraken-spot",
+      "enabled": true,
+      "agent": "sim_crypto_trader",
+      "strategy": "kraken_sim_paper",
+      "connector": "kraken_sim",
+      "tradingContext": "Eight-hour supervised shift on kraken_sim only. This is the simulated Kraken spot account; no real orders. Watch BTC-USD, ETH-USD and SOL-USD. Total shift trading capital is $2,500 within the user's $50,000 simulated account. Journal every tick and every order decision. Never place a trade solely to produce activity.",
+      "capitalQuote": 2500,
+      "requestShare": 1,
+      "frequencySec": 900,
+      "config": {
+        "connector_name": "kraken_sim",
+        "trading_pair": "BTC-USD",
+        "shift_end_action": "stop",
+        "risk_limits": {
+          "max_position_size_quote": 2500,
+          "max_open_executors": 1
+        }
+      }
+    }
+  ]
+}

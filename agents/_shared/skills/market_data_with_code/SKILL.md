@@ -53,7 +53,7 @@ If you are reading this because a market data request just came in, do this chec
 | All tickers for a connector | `run_code` → `get_tickers` | 300 |
 | Multi-venue anything with math | `run_code` + `asyncio.gather` | ~500 |
 | AMM/CLMM DEX candles (Gateway: meteora, raydium, orca, uniswap…) | GeckoTerminal — Gateway connectors don't serve OHLCV | varies |
-| CLOB DEX candles (`hyperliquid_perpetual`, …) | `get_candles*` like any CEX — CLOB DEXs are Hummingbot connectors, not Gateway; check the candle list (`xrpl` has no feed) | varies |
+| CLOB DEX candles (`dydx_v4_perpetual`, …) | `get_candles*` like any CEX — CLOB DEXs are Hummingbot connectors, not Gateway; check the candle list (`xrpl` has no feed) | varies |
 
 ---
 
@@ -166,7 +166,7 @@ vol   = await client.market_data.get_quote_volume_for_price("binance_perpetual",
 **Utilities**
 ```python
 # Check which connectors serve OHLCV before relying on one — Gateway AMM/CLMM
-# connectors never do; CLOB DEXs vary (hyperliquid_perpetual yes, xrpl no)
+# connectors never do; CLOB DEXs vary (dydx_v4_perpetual yes, xrpl no)
 candle_connectors = await client.market_data.get_available_candle_connectors()
 # → ["binance_perpetual", "binance", "okx_perpetual", ...]
 ```
@@ -181,7 +181,6 @@ import asyncio
 venues = [
     ("binance_perpetual",     "BTC-USDT"),
     ("okx_perpetual",         "BTC-USDT"),
-    ("hyperliquid_perpetual", "BTC-USD"),  # HL: BTC-USD not BTC-USDT
 ]
 
 results = await asyncio.gather(
@@ -214,7 +213,6 @@ import asyncio
 venues = [
     ("binance_perpetual",     "BTC-USDT"),
     ("okx_perpetual",         "BTC-USDT"),
-    ("hyperliquid_perpetual", "BTC-USD"),
 ]
 results = await asyncio.gather(
     *[client.market_data.get_funding_info(c, p) for c, p in venues],

@@ -161,7 +161,7 @@ def test_unbinding_back_to_the_assistant_is_also_a_handover(env):
     assert res.json()["session"]["agent_slug"] == ""
     assert [t.text for t in read_transcript(USER.id, conv_id)] == [
         "Switched to Brigado",
-        "Switched to Condor",
+        "Switched to Griffin",
     ]
 
 

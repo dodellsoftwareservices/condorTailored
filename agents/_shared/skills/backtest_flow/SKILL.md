@@ -17,7 +17,7 @@ references_routine: backtest_chart
 The routines below are **shared**: run them from any seat. What differs is not
 the tooling but the judgement:
 
-- **You are the chat (Condor)** → follow the whole flow below. It is **intake
+- **You are the chat (Griffin)** → follow the whole flow below. It is **intake
   only**: the depth — window choice, metric thresholds, parameter sweeps,
   overfitting checks, go/no-go — belongs to the `directional_trader` agent,
   whose `backtesting` playbook covers it. Delegate rather than improvising it.
@@ -126,7 +126,7 @@ The `task_id` is in the metrics row and in the summary text. Record it.
 **Retention:** the Hummingbot API archives finished results to
 `bots/data/backtests/{task_id}.json.gz` and keeps a count of results — 100 by
 default via `BACKTESTING_MAX_RESULTS` (`BACKTESTING_RESULTS_PATH` sets the
-directory). Results survive an API restart. Condor's own copy is independent of
+directory). Results survive an API restart. Griffin's own copy is independent of
 that reaping, so a run you saved stays renderable and comparable after the API has
 dropped it.
 

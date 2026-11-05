@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
 
 from config_manager import get_config_manager
+from routines.base import RoutineResult
 
 CATEGORY = "Bot Analysis"
 
@@ -170,11 +171,15 @@ def _entries(raw):
         yield level, msg, dt, logger
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     cm = get_config_manager()
     server_names = _resolve_servers(cm, context, config.servers)
     if not server_names:
-        return "No servers connected to Condor — nothing to analyze."
+        return RoutineResult(
+            text="No servers connected to Condor — nothing to analyze.", failed=True
+        )
 
     # Fan out: collect every server's active-bot status concurrently.
     results = await asyncio.gather(
@@ -191,7 +196,9 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
 
     if not server_data and server_errors:
         detail = "; ".join(f"{n}: {e}" for n, e in server_errors.items())
-        return f"Failed to fetch bot status from all servers — {detail}"
+        return RoutineResult(
+            text=f"Failed to fetch bot status from all servers — {detail}", failed=True
+        )
 
     multi_server = len(server_names) > 1
 
@@ -370,7 +377,6 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
 
     # --- rich inline result ---------------------------------------------------
     try:
-        from routines.base import RoutineResult
 
         return RoutineResult(
             text=summary,

@@ -159,7 +159,7 @@ class Component:
 def _table() -> dict[str, Component]:
     """The component table, read at call time so the env can still move it."""
     return {
-        CONDOR: Component(CONDOR, "Condor", updater.CONDOR_DIR),
+        CONDOR: Component(CONDOR, "Griffin", updater.CONDOR_DIR),
         HUMMINGBOT_API: Component(
             HUMMINGBOT_API,
             "Hummingbot API",
@@ -826,12 +826,12 @@ def _steps_for(component_key: str, status_: ComponentStatus) -> list[str]:
     else:
         # Must stay in step with ``run._plan``: the confirm screen and the
         # progress screen are meant to be the same list.
-        steps.append("Fast-forward the Condor checkout")
+        steps.append("Fast-forward the Griffin checkout")
         steps.append("Restore any work stashed to clear the way")
         steps.append("Sync dependencies")
         steps.append("Rebuild the dashboard if the update touched it")
         steps.append("Check the install over")
-        steps.append("Relaunch Condor to apply it")
+        steps.append("Relaunch Griffin to apply it")
     return steps
 
 
@@ -954,7 +954,7 @@ def _disk_warning(repo_dir: str) -> Warning | None:
         component=CONDOR,
         code="low-disk",
         message=(
-            f"Only {free_gb:.1f} GB free where Condor is installed. An update "
+            f"Only {free_gb:.1f} GB free where Griffin is installed. An update "
             f"writes a synced virtualenv, a fresh node_modules and a new "
             f"dashboard bundle — running out part-way through leaves the "
             f"install half-built. Free some space first."
@@ -1143,7 +1143,7 @@ async def preflight(component_keys: list[str]) -> Preflight:
                 component=CONDOR,
                 code="relaunch-to-apply",
                 message=(
-                    "Condor keeps running the code it booted with until you "
+                    "Griffin keeps running the code it booted with until you "
                     "relaunch it yourself — nothing is interrupted, and nothing "
                     "new takes effect either. Every surface will say so until "
                     "you do."

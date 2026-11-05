@@ -43,9 +43,10 @@ import {
   type RoutineInstance,
 } from "@/lib/api";
 import { DOCK_PANES_KEY } from "@/lib/sessionState";
+import { WIDE_MEDIA_QUERY } from "@/lib/layout-scale";
 
 /** Where the dock stops being a column and starts overlaying (Tailwind `xl`). */
-const WIDE = "(min-width: 1280px)";
+const WIDE = WIDE_MEDIA_QUERY;
 
 /** The two questions this dock answers about the conversation on screen. */
 export type ContextPaneId = "tasks" | "routines";

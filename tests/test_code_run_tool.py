@@ -446,11 +446,23 @@ def test_the_mcp_run_code_path_still_works_end_to_end(monkeypatch, seat):
 
     monkeypatch.setattr(code_routes, "execute_code", _execute)
 
+    class _LoopbackRequest:
+        """Stands in for the real ``Request`` just enough for
+        ``get_current_user`` to see no cookie and a loopback client — the
+        MCP subprocess always calls ``127.0.0.1``, which is exactly what
+        lets its bearer token through the loopback-only fallback."""
+
+        cookies: dict = {}
+
+        class client:
+            host = "127.0.0.1"
+
     async def _transport(method, path, body=None, timeout=None):
         assert (method, path) == ("POST", "/code/run")
         token = web_auth.create_jwt(settings.user_id, role="user")
         user = await web_auth.get_current_user(
-            HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+            _LoopbackRequest(),
+            HTTPAuthorizationCredentials(scheme="Bearer", credentials=token),
         )
         return await run_code_route(RunCodeRequest(**body), user=user)
 

@@ -7,7 +7,7 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from condor.preferences import get_clob_account
+from condor.preferences import DEFAULT_CLOB_CONNECTOR, get_clob_account
 from utils.telegram_formatters import (
     escape_markdown_v2,
     format_error_message,
@@ -130,7 +130,7 @@ async def handle_trade_position(
         position = positions[position_index]
 
         # Extract position details
-        connector_name = position.get("connector_name", "binance_perpetual")
+        connector_name = position.get("connector_name", DEFAULT_CLOB_CONNECTOR)
         trading_pair = position.get("trading_pair", "BTC-USDT")
         amount = position.get("amount", 0)
         side = (

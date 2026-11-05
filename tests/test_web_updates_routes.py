@@ -246,7 +246,7 @@ def test_preflight_passes_blocks_and_warnings_through(as_user, admin, monkeypatc
                 message="3 running executors will be reaped",
             )
         ],
-        steps=["Fast-forward the Condor checkout", "Sync dependencies"],
+        steps=["Fast-forward the Griffin checkout", "Sync dependencies"],
     )
 
     async def fake_preflight(keys):
@@ -265,7 +265,7 @@ def test_preflight_passes_blocks_and_warnings_through(as_user, admin, monkeypatc
     assert body["blocks"][0]["paths"] == ["condor/paths.py", "main.py"]
     assert body["blocks"][0]["resolutions"] == ["stash", "discard"]
     assert body["warnings"][0]["code"] == "executors_reaped"
-    assert body["steps"] == ["Fast-forward the Condor checkout", "Sync dependencies"]
+    assert body["steps"] == ["Fast-forward the Griffin checkout", "Sync dependencies"]
 
 
 def test_resolve_sends_no_paths_to_the_engine(as_user, admin, monkeypatch):

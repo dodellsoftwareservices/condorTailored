@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useAuth } from "@/lib/auth";
@@ -10,6 +10,12 @@ export function Login() {
   const [error, setError] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
   const attempted = useRef(false);
+  // Set once a login attempt comes back asking for a second factor. The
+  // one-time Telegram token has to be remembered to retry it with the code
+  // attached; local mode has no such token to carry — it just resubmits.
+  const [otpRequired, setOtpRequired] = useState(false);
+  const [otp, setOtp] = useState("");
+  const pendingLoginToken = useRef<string | null>(null);
   // How this install logs in — asked once, before anything is rendered, so the
   // "run /web in Telegram" card never flashes on a machine that has no Telegram.
   // `"unreachable"` is not a mode the server can report: it is what we know when
@@ -45,28 +51,67 @@ export function Login() {
     // a POST below; the address bar should not keep it.
     window.history.replaceState(null, "", window.location.pathname);
 
+    pendingLoginToken.current = token;
     loginWithToken(token)
       .then(() => navigate(redirectTo, { replace: true }))
-      .catch((err) => {
+      .catch((err: { code?: string; message?: string }) => {
+        if (err?.code === "2fa_required" || err?.code === "2fa_invalid") {
+          setOtpRequired(true);
+          setError(err.code === "2fa_invalid" ? err.message ?? "" : "");
+          setLoggingIn(false);
+          return;
+        }
         setError(err instanceof Error ? err.message : "Login failed");
         setLoggingIn(false);
       });
   }, [searchParams, loginWithToken, navigate, redirectTo]);
 
-  // The one local-login attempt, shared by the probe below and the Retry
-  // button. Retrying calls this directly rather than re-firing the effect: the
-  // `probed` ref has already latched, and the mode cannot have changed without
-  // a server restart, so a second /auth/mode round trip would buy nothing.
-  const attemptLocalLogin = useCallback(() => {
-    setError("");
-    setLoggingIn(true);
-    return loginLocal()
-      .then(() => navigate(redirectTo, { replace: true }))
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Login failed");
-        setLoggingIn(false);
-      });
-  }, [loginLocal, navigate, redirectTo]);
+  // The one local-login attempt, shared by the probe below, the Retry button
+  // and the 2FA form. Retrying calls this directly rather than re-firing the
+  // effect: the `probed` ref has already latched, and the mode cannot have
+  // changed without a server restart, so a second /auth/mode round trip
+  // would buy nothing.
+  const attemptLocalLogin = useCallback(
+    (otpCode?: string) => {
+      setError("");
+      setLoggingIn(true);
+      return loginLocal(otpCode)
+        .then(() => navigate(redirectTo, { replace: true }))
+        .catch((err: { code?: string; message?: string }) => {
+          if (err?.code === "2fa_required" || err?.code === "2fa_invalid") {
+            setOtpRequired(true);
+            setError(err.code === "2fa_invalid" ? err.message ?? "" : "");
+            setLoggingIn(false);
+            return;
+          }
+          setError(err instanceof Error ? err.message : "Login failed");
+          setLoggingIn(false);
+        });
+    },
+    [loginLocal, navigate, redirectTo],
+  );
+
+  const submitOtp = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault();
+      const code = otp.trim();
+      if (!code) return;
+      if (pendingLoginToken.current) {
+        setError("");
+        setLoggingIn(true);
+        loginWithToken(pendingLoginToken.current, code)
+          .then(() => navigate(redirectTo, { replace: true }))
+          .catch((err: { code?: string; message?: string }) => {
+            setError(err instanceof Error ? err.message : "Invalid code");
+            setLoggingIn(false);
+            setOtp("");
+          });
+        return;
+      }
+      void attemptLocalLogin(code).then(() => setOtp(""));
+    },
+    [otp, loginWithToken, attemptLocalLogin, navigate, redirectTo],
+  );
 
   // Local mode (FEAT-049): there is no login step. Ask the server how it
   // authenticates and, if the answer is "locally", claim the session and go.
@@ -90,7 +135,7 @@ export function Login() {
         // with no bot to run it in; say what actually happened instead.
         if (cancelled) return;
         setMode("unreachable");
-        setError(err instanceof Error ? err.message : "Could not reach Condor");
+        setError(err instanceof Error ? err.message : "Could not reach Griffin");
       });
 
     return () => {
@@ -109,11 +154,39 @@ export function Login() {
   }, []);
 
   return (
-    <div className="flex h-screen items-center justify-center">
+    <div className="flex h-[var(--app-viewport-height)] items-center justify-center">
       <div className="w-full max-w-sm rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center">
-        <img src="/condor_old.jpeg" alt="Condor" className="mx-auto mb-4 h-16 w-16 rounded-full" />
-        <h1 className="mb-2 text-2xl font-bold">Condor</h1>
-        {loggingIn || (mode === null && !searchParams.get("token")) ? (
+        <div className="mx-auto mb-4 h-16 w-16">
+          <img src="/griffin-logo.png" alt="Griffin" className="home-logo" />
+        </div>
+        <h1 className="mb-2 text-2xl font-bold">Griffin</h1>
+        {otpRequired ? (
+          <form onSubmit={submitOtp}>
+            <p className="mb-4 text-sm text-[var(--color-text-muted)]">
+              Enter the 6-digit code from your authenticator app, or one of
+              your recovery codes.
+            </p>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoFocus
+              autoComplete="one-time-code"
+              aria-label="Two-factor authentication code"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              placeholder="000000"
+              disabled={loggingIn}
+              className="mb-4 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-center text-lg tracking-widest"
+            />
+            <button
+              type="submit"
+              disabled={loggingIn || !otp.trim()}
+              className="w-full rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {loggingIn ? "Verifying..." : "Verify"}
+            </button>
+          </form>
+        ) : loggingIn || (mode === null && !searchParams.get("token")) ? (
           <p className="text-sm text-[var(--color-text-muted)]">
             Signing in...
           </p>
@@ -128,7 +201,7 @@ export function Login() {
               This install runs in local mode, so there is no login link — the dashboard signs you in by itself. That did not work this time.
             </p>
             <p className="mb-6 text-sm text-[var(--color-text-muted)]">
-              Check that Condor is still running, and that <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">ADMIN_USER_ID</code> in <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">.env</code> is an approved user in <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">config.yml</code> — or run <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">make setup</code> and choose Local mode.
+              Check that Griffin is still running, and that <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">ADMIN_USER_ID</code> in <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">.env</code> is an approved user in <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">config.yml</code> — or run <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">make setup</code> and choose Local mode.
             </p>
             <button
               type="button"
@@ -145,10 +218,10 @@ export function Login() {
           // in red.
           <>
             <p className="mb-4 text-sm text-[var(--color-text-muted)]">
-              The dashboard could not reach Condor, so it cannot tell how this install signs you in.
+              The dashboard could not reach Griffin, so it cannot tell how this install signs you in.
             </p>
             <p className="mb-6 text-sm text-[var(--color-text-muted)]">
-              Check that Condor is running — <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">make status</code> shows it, <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">make run</code> starts it — then retry.
+              Check that Griffin is running — <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">make status</code> shows it, <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 font-mono text-xs">make run</code> starts it — then retry.
             </p>
             <button
               type="button"

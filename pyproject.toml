@@ -37,6 +37,10 @@ dependencies = [
     # Brings py-vapid and http-ece; cryptography was already here via
     # python-jose[cryptography].
     "pywebpush>=2.5.0",
+    # TOTP (RFC 6238) for the dashboard's optional second login factor.
+    # Zero dependencies of its own; the alternative was hand-rolling HMAC-based
+    # one-time passwords, which is exactly the kind of thing worth not doing.
+    "pyotp>=2.9.0",
 ]
 
 [dependency-groups]

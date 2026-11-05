@@ -1,7 +1,9 @@
 import {
   Bot,
   Brain,
+  LayoutDashboard,
   Droplets,
+  LineChart,
   Settings,
   Swords,
   Wallet,
@@ -34,12 +36,23 @@ import {
  * own root, split by the level below it — so the floor is the fleet scope of
  * that browser rather than a second door onto the same records. `/floor`
  * redirects to `/bots`.
+ *
+ * Get Started is not here: it is a side panel the header's book button opens
+ * (components/guide), because a walkthrough is read while doing the steps on
+ * the other pages, which a page of its own would hide.
+ *
+ * Equities is its own entry rather than a mode of Trade: that page's whole
+ * data path (useServer, a connector/pair, the WS-fed candle store) assumes a
+ * crypto venue, which paper equities has no equivalent of — one shared
+ * Alpaca account, not a configured Hummingbot server.
  */
 export const NAV_ITEMS = [
-  { to: "/", icon: Brain, label: "Agents" },
+  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/agents", icon: Brain, label: "Agents" },
   { to: "/portfolio", icon: Wallet, label: "Portfolio" },
   { to: "/trade", icon: Swords, label: "Trade" },
   { to: "/dex", icon: Droplets, label: "DEX" },
+  { to: "/equities", icon: LineChart, label: "Equities" },
   { to: "/bots", icon: Bot, label: "Bots" },
   { to: "/routines", icon: Zap, label: "Routines" },
   { to: "/settings", icon: Settings, label: "Settings" },
@@ -64,4 +77,4 @@ export const NAV_ITEMS = [
  * route with a body any more (FEAT-116): a layout rule for it would be a rule
  * about a redirect. What it used to draw is `/bots`, which is on this list.
  */
-export const FULL_BLEED_ROUTES = ["/", "/bots", "/routines"];
+export const FULL_BLEED_ROUTES = ["/agents", "/bots", "/routines"];

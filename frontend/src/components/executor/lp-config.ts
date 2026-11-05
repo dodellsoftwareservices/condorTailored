@@ -363,10 +363,10 @@ export function useLpConfig(
               {
                 price: state.lower_limit_price,
                 label: "Lower limit",
-                // Amber while armed, matching how the chart marks its own lines.
+                // Blue while armed, matching how the chart marks its own lines.
                 color:
                   state.activePickField === "lower_limit_price"
-                    ? "#fbbf24"
+                    ? getThemeColors().primary
                     : getThemeColors().red,
                 lineStyle: "dotted" as const,
                 lineWidth: 1,

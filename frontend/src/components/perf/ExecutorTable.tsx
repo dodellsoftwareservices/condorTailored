@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { ExecutorChart } from "@/components/charts/ExecutorChart";
 import { PairLabel } from "@/components/executor/PairLabel";
 import { useResizeDrag } from "@/hooks/useResizeDrag";
+import { getLayoutViewport } from "@/lib/layout-scale";
 import { type ExecutorInfo } from "@/lib/api";
 import {
   formatUsd,
@@ -395,13 +396,13 @@ export function DetailPanel({
   const navigate = useNavigate();
   const [panelWidth, setPanelWidth] = useState(480);
 
-  const { onMouseDown } = useResizeDrag({
+  const { onMouseDown, onPointerDown } = useResizeDrag({
     axis: "x",
     value: panelWidth,
     onChange: setPanelWidth,
     min: 300,
-    max: () => window.innerWidth * 0.8,
-    compute: (coord) => window.innerWidth - coord,
+    max: () => getLayoutViewport().width * 0.8,
+    compute: (coord) => getLayoutViewport().width - coord,
     cursor: "col-resize",
     lockUserSelect: true,
   });
@@ -452,6 +453,8 @@ export function DetailPanel({
         <div
           className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-[var(--color-primary)]/30 transition-colors z-10"
           onMouseDown={onMouseDown}
+          onPointerDown={onPointerDown}
+          style={{ touchAction: "none" }}
         />
 
         <div className="sticky top-0 bg-[var(--color-bg)] border-b border-[var(--color-border)] px-5 py-4 flex items-center justify-between">

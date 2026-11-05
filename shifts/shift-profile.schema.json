@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "Loop": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Unique, lowercase [a-z0-9-].",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "agent": {
+          "description": "Agent slug, e.g. market_making_expert.",
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Agent",
+          "type": "string"
+        },
+        "strategy": {
+          "description": "Loop (strategy) slug under the agent.",
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Strategy",
+          "type": "string"
+        },
+        "connector": {
+          "description": "Test venue the loop trades on.",
+          "enum": [
+            "aevo_perpetual_testnet",
+            "architect_perpetual_sandbox",
+            "binance_perpetual_testnet",
+            "bybit_perpetual_testnet",
+            "bybit_testnet",
+            "decibel_perpetual_testnet",
+            "derive_perpetual_testnet",
+            "derive_testnet",
+            "dexalot_testnet",
+            "grvt_perpetual_testnet",
+            "hyperliquid_perpetual_testnet",
+            "hyperliquid_testnet",
+            "kraken_sim",
+            "lighter_perpetual_testnet",
+            "lighter_testnet",
+            "ndax_testnet",
+            "pacifica_perpetual_testnet"
+          ],
+          "minLength": 1,
+          "title": "Connector",
+          "type": "string"
+        },
+        "tradingContext": {
+          "default": "",
+          "description": "Sent as the run's trading_context; names the pair and venue.",
+          "title": "Tradingcontext",
+          "type": "string"
+        },
+        "capitalQuote": {
+          "description": "Quote-currency capital for this loop.",
+          "exclusiveMinimum": 0,
+          "title": "Capitalquote",
+          "type": "number"
+        },
+        "requestShare": {
+          "description": "Share of the request budget; normalised over the loops started.",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Requestshare",
+          "type": "number"
+        },
+        "frequencySec": {
+          "description": "Seconds between ticks (the pacer may stretch it).",
+          "maximum": 86400,
+          "minimum": 30,
+          "title": "Frequencysec",
+          "type": "integer"
+        },
+        "config": {
+          "additionalProperties": true,
+          "description": "Run-config overrides applied last. Not agent_key, frequency_sec, total_amount_quote, shift_id, shift_ends_at or request_share.",
+          "title": "Config",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "agent",
+        "strategy",
+        "connector",
+        "capitalQuote",
+        "requestShare",
+        "frequencySec"
+      ],
+      "title": "Loop",
+      "type": "object",
+      "patternProperties": {
+        "^[_$]": {}
+      }
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "Equals the file name without .json.",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "hours": {
+      "description": "Length of the shift.",
+      "exclusiveMinimum": 0,
+      "maximum": 24,
+      "title": "Hours",
+      "type": "number"
+    },
+    "capitalQuote": {
+      "description": "Ceiling on the sum of enabled loops' capital.",
+      "exclusiveMinimum": 0,
+      "title": "Capitalquote",
+      "type": "number"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Agent key for every loop; null uses agent-config.json 'model'.",
+      "title": "Model"
+    },
+    "requestBudget": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Most model requests the shift plans to spend; null = what the daily budget leaves.",
+      "title": "Requestbudget"
+    },
+    "loops": {
+      "items": {
+        "$ref": "#/$defs/Loop"
+      },
+      "minItems": 1,
+      "title": "Loops",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "hours",
+    "capitalQuote",
+    "loops"
+  ],
+  "title": "Condor shift profile",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "patternProperties": {
+    "^[_$]": {}
+  }
+}

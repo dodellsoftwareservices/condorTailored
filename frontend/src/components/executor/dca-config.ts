@@ -265,7 +265,7 @@ export function useDCAConfig() {
       extras.push({
         price: bep,
         label: "BEP",
-        color: "#f59e0b",
+        color: "#d779a5",
         lineStyle: "solid",
         lineWidth: 2,
       });

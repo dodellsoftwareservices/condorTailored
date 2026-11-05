@@ -151,7 +151,7 @@ Updatable = marked `is_updatable` in the code (can be changed on a running bot v
 | `trailing_stop` | obj or null | null | `"activation,delta"` string, e.g. `0.015,0.003`, or a mapping | yes |
 | `manual_kill_switch` | bool | false | true stops the controller and all its executors (v2_with_controllers script); false restarts it | yes |
 | `initial_positions` | list | [] | pre-existing positions to adopt; leave empty | no |
-| `id` | str | required | do not put it in samples; Condor names uploads `supertrend_v1__<style>` | no |
+| `id` | str | required | do not put it in samples; Griffin names uploads `supertrend_v1__<style>` | no |
 
 ## Config gotchas
 

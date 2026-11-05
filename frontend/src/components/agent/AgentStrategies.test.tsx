@@ -173,7 +173,7 @@ describe("AgentStrategies delete (READ-408)", () => {
     expect(deletes).toHaveLength(2);
     act(() => deletes[1].click());
 
-    const confirm = Array.from(container.querySelectorAll("button")).find(
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("dialog button")).find(
       (b) => b.textContent === "Delete",
     );
     expect(confirm).toBeDefined();

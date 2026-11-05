@@ -27,7 +27,7 @@ logger = logging.getLogger("hummingbot-mcp")
 T = TypeVar("T")
 
 GATEWAY_LOG_HINT = (
-    "\n\n💡 Gateway's logs usually say why. They are in the Condor dashboard "
+    "\n\n💡 Gateway's logs usually say why. They are in the Griffin dashboard "
     "(Settings → Gateway → Logs); point the user there."
 )
 

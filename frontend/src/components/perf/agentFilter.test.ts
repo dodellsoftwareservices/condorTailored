@@ -85,7 +85,7 @@ const OWNERS: FleetOwner[] = [
   {
     runKey: "condor.ui",
     agentSlug: "condor",
-    agentName: "Condor",
+    agentName: "Griffin",
     strategySlug: "ui",
     // `PSEUDO_STRATEGY_NAMES` puts the word here; the browser keeps no copy.
     strategyName: "Dashboard",
@@ -116,7 +116,7 @@ describe("agentBucketLabel", () => {
   });
 
   it("says a pseudo-run's words and a strategy's slugs", () => {
-    expect(agentBucketLabel("condor.ui", OWNERS)).toBe("Condor / Dashboard");
+    expect(agentBucketLabel("condor.ui", OWNERS)).toBe("Griffin / Dashboard");
     expect(agentBucketLabel("brigado.brl_mm", OWNERS)).toBe("brigado / brl_mm");
   });
 
@@ -176,7 +176,7 @@ describe("agentOptions", () => {
     );
     expect(options.map((o) => [o.value, o.label])).toEqual([
       ["brigado.brl_mm", "brigado / brl_mm"],
-      ["condor.ui", "Condor / Dashboard"],
+      ["condor.ui", "Griffin / Dashboard"],
       [OUTSIDE, OUTSIDE_LABEL],
     ]);
   });

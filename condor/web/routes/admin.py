@@ -84,6 +84,11 @@ class AdminPerson(BaseModel):
     # no `users` record at all. Such a grant is live and unrevokable from
     # anywhere in the product today; surfacing the row is what makes it fixable.
     known: bool = True
+    # Whether this person has 2FA on. Self-service is the only way to turn it
+    # off today unless an admin uses the reset route below — surfacing it here
+    # is what makes a locked-out user (device + recovery codes both lost)
+    # actually recoverable instead of a permanent lockout.
+    two_factor_enabled: bool = False
 
 
 class AdminUser(BaseModel):
@@ -152,6 +157,7 @@ def _person(cm, user_id: int, record: dict | None) -> AdminPerson:
         last_seen=float(record.get("last_seen") or 0.0),
         servers=_grants_for(cm, user_id, is_admin),
         known=known,
+        two_factor_enabled=cm.has_2fa_enabled(user_id) if known else False,
     )
 
 
@@ -312,6 +318,42 @@ async def set_person_role(
 
     # `reject` deletes the record; the row survives only if some server still
     # grants it access, which is exactly the case the panel must keep showing.
+    return _person(cm, user_id, cm.get_user(user_id))
+
+
+# ── two-factor ──
+
+
+@router.delete("/people/{user_id}/2fa", response_model=AdminPerson)
+async def reset_person_2fa(
+    user_id: int,
+    user: WebUser = Depends(get_current_user),
+):
+    """Turn off 2FA for a person who has lost both their authenticator and
+    their recovery codes — the only escape hatch for that lockout, since
+    every other 2FA route requires proving the factor it's turning off.
+
+    Deliberately named ``reset`` to the client, not ``disable``: an admin
+    doing this to someone else is always recovering a locked-out account,
+    never the kind of routine opt-out ``disable_totp`` with a self-service
+    ``actor_id`` represents. Both are audited, but with ``self_service=False``
+    here so the trail distinguishes "the owner turned it off" from "an admin
+    turned it off for them".
+    """
+    require_admin(user)
+    cm = get_config_manager()
+
+    record = cm.get_user(user_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Unknown user {user_id}")
+
+    if cm.is_admin(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Admin accounts must use the Security tab and prove their current factor",
+        )
+    cm.disable_totp(user_id, actor_id=user.id)
+    log.warning("Admin %s reset 2FA for user %s", user.id, user_id)
     return _person(cm, user_id, cm.get_user(user_id))
 
 

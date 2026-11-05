@@ -76,7 +76,7 @@ function agent(slug: string, name: string): AgentSummary {
 const CONDOR_UI: FleetOwner = {
   runKey: "condor.ui",
   agentSlug: "condor",
-  agentName: "Condor",
+  agentName: "Griffin",
   strategySlug: "ui",
   strategyName: "Dashboard",
   namespace: "",
@@ -144,9 +144,9 @@ describe("the agent rows", () => {
     // has ever seen. The word comes off the map, and the row must say what the
     // sidebar and its filter bubble say for the same key (READ-364).
     const leaves = [leaf({ id: "c1", bot: "sol_scalper", agent: "condor.ui", how: "deed", net: 9 })];
-    const [row] = allOpen(leaves, [agent("condor", "Condor")]);
+    const [row] = allOpen(leaves, [agent("condor", "Griffin")]);
 
-    expect(row.label).toBe("Condor / Dashboard");
+    expect(row.label).toBe("Griffin / Dashboard");
     // The id is untouched: same row, same scope, same link.
     expect(row.id).toBe("agent:condor.ui");
   });

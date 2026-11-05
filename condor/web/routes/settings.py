@@ -25,6 +25,7 @@ from condor.server_data_service import (
 )
 from condor.web.auth import (
     get_current_user,
+    require_admin,
     require_owner,
     require_server_access_query,
 )
@@ -187,24 +188,39 @@ async def gateway_status(
     user: WebUser = Depends(require_server_access_query),
 ):
     cm = get_config_manager()
-    client = await _get_client(cm, server)
     try:
+        client = await _get_client(cm, server)
         info = await client.gateway.get_status()
+    except HTTPException:
+        _gateway_was_running[server] = False
+        raise
+    except Exception as e:
+        _gateway_was_running[server] = False
+        logger.exception("Failed to fetch gateway status from '%s'", server)
+        raise upstream_error("Failed to fetch gateway status", e)
+    if not isinstance(info, dict) or not isinstance(info.get("running"), bool):
+        _gateway_was_running[server] = False
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to fetch gateway status: invalid status response",
+        )
+    try:
         # The inner "running" field from the API is the actual status
-        is_running = info.get("running", False) if isinstance(info, dict) else False
-        result = {"running": is_running, "info": info}
-        # Extract container details if available
-        if isinstance(info, dict):
-            result["image"] = info.get("image", None)
-            result["created_at"] = info.get("created", info.get("created_at", None))
-            result["container_status"] = info.get("status", None)
+        is_running = info["running"]
+        result = {
+            "running": is_running,
+            "info": info,
+            "image": info.get("image"),
+            "created_at": info.get("created", info.get("created_at")),
+            "container_status": info.get("status"),
+        }
         if is_running and not _gateway_was_running.get(server, False):
             get_server_data_service().invalidate(server, ServerDataType.VENUES)
         _gateway_was_running[server] = is_running
         return result
     except Exception:
         _gateway_was_running[server] = False
-        return {"running": False, "info": None}
+        raise
 
 
 @router.post("/gateway/pull")
@@ -927,15 +943,11 @@ async def list_connectors(
             status_code=502, detail="Cannot fetch connectors from server"
         )
 
-    # API returns plain strings — filter out testnet/gateway connectors
-    names = [
-        c
-        for c in raw
-        if isinstance(c, str)
-        and "testnet" not in c.lower()
-        and "sandbox" not in c.lower()
-        and "/" not in c
-    ]
+    # API returns plain strings — filter out gateway connectors. Testnet and
+    # sandbox venues (binance_perpetual_testnet, ...) stay in: they are the only
+    # way to trade on a paper market, since Hummingbot's *_paper_trade
+    # connectors cannot run V2 controllers.
+    names = [c for c in raw if isinstance(c, str) and "/" not in c]
     if type:
         if type.lower() == "perpetual":
             names = [c for c in names if "perpetual" in c.lower()]
@@ -1078,7 +1090,14 @@ async def add_custom_provider(
     Validation is a GET {base_url}/models, which proves the URL is reachable,
     the key is accepted, and the response is OpenAI-shaped — all in one round
     trip — and returns the model list the caller needs anyway.
+
+    Admin-only: that GET goes to a caller-supplied host, and loopback/RFC1918
+    targets are allowed by default (``CUSTOM_LLM_BLOCK_PRIVATE_URLS`` is
+    opt-in, left off because a local Ollama/vLLM server is the common case).
+    An approved seat with no other reason to reach outside the app should not
+    get a working probe of the host's loopback and Docker network for free.
     """
+    require_admin(user)
     from condor.llm.custom_models import (
         CustomProviderError,
         fetch_models,

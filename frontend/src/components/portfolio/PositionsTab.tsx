@@ -3,8 +3,8 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { feeAmount, lpStateStyle, rangeFraction, type LpPosition } from "@/components/dex/lp-position";
-import { type ConsolidatedPosition } from "@/lib/api";
 import { formatPnl, formatPriceSig, formatUsd, pnlColor } from "@/lib/formatters";
+import type { PortfolioPosition } from "./simAccountData";
 
 /** The quote a hold's numbers are denominated in — its pair's, as elsewhere. */
 function quoteOf(pair: string): string {
@@ -44,7 +44,8 @@ function sideStyle(side: string): { label: string; color: string; bg: string } |
 }
 
 /** Which executors or which bot put this hold on — the only attribution the API gives. */
-function sourceLabel(pos: ConsolidatedPosition): string {
+function sourceLabel(pos: PortfolioPosition): string {
+  if (pos.simulated) return "Kraken simulator";
   if (pos.source === "bot") return pos.source_name || pos.controller_id || "bot";
   const n = pos.executor_count ?? 0;
   return `${n} executor${n === 1 ? "" : "s"}`;
@@ -56,7 +57,7 @@ const TD = "px-4 py-2.5";
 const TDR = `${TD} text-right font-mono tabular-nums`;
 
 interface Props {
-  holds: ConsolidatedPosition[];
+  holds: PortfolioPosition[];
   lpPositions: LpPosition[];
   lpLabel: (pos: LpPosition) => string;
   isLoading: boolean;
@@ -121,7 +122,7 @@ export function PositionsTab({
         <Layers className="h-10 w-10" />
         <p>No open positions.</p>
         <p className="text-sm">
-          A position appears here when an executor or bot opens one.
+          Positions opened by executors, bots and Kraken simulators appear here.
         </p>
         <button
           onClick={() => navigate("/trade")}
@@ -142,7 +143,7 @@ export function PositionsTab({
             <h2 className="text-sm font-semibold">Holds</h2>
             {/* Load-bearing, not decoration: this is the honest scope of the data. */}
             <span className="text-xs text-[var(--color-text-muted)]">
-              Opened by Condor&apos;s executors and bots
+              Live and simulated positions, labelled by account
             </span>
           </div>
 
@@ -170,18 +171,19 @@ export function PositionsTab({
                     <tr
                       key={`${pos.connector_name}-${pos.trading_pair}-${pos.position_side}-${i}`}
                       data-hold-row
-                      onClick={() =>
+                      onClick={pos.simulated ? undefined : () =>
                         navigate(
                           `/trade?connector=${encodeURIComponent(pos.connector_name)}&pair=${encodeURIComponent(pos.trading_pair)}`,
                         )
                       }
-                      className="group cursor-pointer border-b border-[var(--color-border)]/40 transition-colors last:border-0 hover:bg-[var(--color-surface-hover)]"
+                      className={`group ${pos.simulated ? "" : "cursor-pointer"} border-b border-[var(--color-border)]/40 transition-colors last:border-0 hover:bg-[var(--color-surface-hover)]`}
                     >
                       <td className={TD}>
                         <div className="font-medium">{pos.trading_pair}</div>
                         <div className="text-xs text-[var(--color-text-muted)]">
                           {pos.connector_name}
                         </div>
+                        {pos.simulated && <span className="text-[10px] uppercase tracking-wide text-[var(--color-primary)]">Simulated · no real funds</span>}
                       </td>
                       <td className={TD}>
                         {side ? (
@@ -214,7 +216,7 @@ export function PositionsTab({
                         {sourceLabel(pos)}
                       </td>
                       <td className="px-2 text-right">
-                        <ArrowRight className="h-3.5 w-3.5 text-[var(--color-text-muted)] opacity-0 transition-opacity group-hover:opacity-100" />
+                        {!pos.simulated && <ArrowRight className="h-3.5 w-3.5 text-[var(--color-text-muted)] opacity-0 transition-opacity group-hover:opacity-100" />}
                       </td>
                     </tr>
                   );

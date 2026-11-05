@@ -313,6 +313,14 @@ class RoutineStore:
         self._results: dict[str, RoutineResult] = {}
         self._tasks: dict[str, asyncio.Task] = {}
         self._bot = None  # Telegram bot instance, set via set_bot()
+        # The last error text each instance reported, so a scheduled run stuck
+        # failing the same way every tick (system review 2026-10-31, finding
+        # #14 — the stale-password P0 posted the same ConnectionError every
+        # 30s for an extended period) notifies once per *distinct* failure
+        # instead of once per tick. Mirrors TickEngine._last_error
+        # (condor/agents/engine.py): the instance record/telemetry still see
+        # every run, only the push to the owner is gated.
+        self._last_run_error: dict[str, str] = {}
 
     def set_bot(self, bot) -> None:
         """Inject the Telegram bot so web-triggered routines can send messages."""
@@ -506,6 +514,7 @@ class RoutineStore:
         # _authorized_instance, the MCP tool via get_instance), so a result left
         # behind here is unreachable memory rather than a cache.
         self._results.pop(instance_id, None)
+        self._last_run_error.pop(instance_id, None)
 
     def _has_live_task(self, instance_id: str) -> bool:
         """True while the instance's own task is still on the loop."""
@@ -814,6 +823,12 @@ class RoutineStore:
                 cfg = routine.config_class(**config)
                 raw = await routine.run_fn(cfg, ctx)
             result = normalize_result(raw)
+            if result.failed:
+                # The routine caught its own exception and returned a
+                # RoutineResult(failed=True) instead of raising — still a
+                # failed run, not the happy path (finding #10).
+                error_msg = result.text
+                failed = True
         except asyncio.CancelledError:
             result = RoutineResult(text="Stopped by user")
         except Exception as e:
@@ -872,7 +887,21 @@ class RoutineStore:
             ok=not failed,
         )
 
-        await self._report_run(instance_id, summary, error_msg)
+        # A scheduled/continuous run stuck failing the exact same way every
+        # tick has nothing new to tell the owner past the first time — notify
+        # on the first failure and on any *change* (including recovery), not
+        # on every repeat (finding #14). A successful run always clears the
+        # memory, so the next distinct failure (even one seen before)
+        # notifies again rather than staying silenced forever.
+        if failed:
+            repeated_failure = self._last_run_error.get(instance_id) == error_msg
+            self._last_run_error[instance_id] = error_msg
+        else:
+            repeated_failure = False
+            self._last_run_error.pop(instance_id, None)
+
+        if not repeated_failure:
+            await self._report_run(instance_id, summary, error_msg)
 
         if fire_hooks:
             await self._fire_hooks(instance_id, result, report_id, failed)

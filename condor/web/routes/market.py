@@ -47,6 +47,7 @@ _candle_inflight = SingleFlight()
 
 
 from condor.fetchers.market_data import fetch_historical_candles
+from condor.venues import data_connector_for
 from condor.web.auth import get_current_user, require_server_access
 from condor.web.models import (
     CandleData,
@@ -470,7 +471,10 @@ async def _fetch_candles_upstream(
     try:
         rows = await fetch_historical_candles(
             client,
-            connector,
+            # The API serves candles for mainnet venues only, so a test venue's
+            # chart is its mainnet counterpart's. The caller's cache key keeps the
+            # name that was asked for.
+            data_connector_for(connector),
             trading_pair,
             interval,
             # No start_time means no time range to ask for: go straight to the

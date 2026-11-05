@@ -74,6 +74,20 @@ MAX_RECORDED_RESULT = 2000
 FAILED_STOP_REASONS = frozenset({"error", "disconnected", "timeout"})
 
 
+def fallback_agent_key() -> str:
+    """The model a delegated run answers with when its own backend is down, or ``""``.
+
+    ``AGENT_FALLBACK_MODEL`` wins, ``CONSULT_FALLBACK_MODEL`` is its old name, and
+    with neither set it is ``claude-code``. ``""`` means no fallback: the run
+    fails instead of quietly spending on another provider. Read here so the run
+    and :mod:`condor.agents.seats` cannot disagree about it.
+    """
+    return os.environ.get(
+        "AGENT_FALLBACK_MODEL",
+        os.environ.get("CONSULT_FALLBACK_MODEL", "claude-code"),
+    ).strip()
+
+
 def _delegated_envelope() -> tuple[RiskEngine, RiskState]:
     """The risk envelope a delegated run trades inside (MM-1).
 
@@ -196,10 +210,7 @@ async def run_agent_to_completion(
             model_key, base_url=base_url, api_key=api_key
         )
         if backend_err:
-            fallback = os.environ.get(
-                "AGENT_FALLBACK_MODEL",
-                os.environ.get("CONSULT_FALLBACK_MODEL", "claude-code"),
-            ).strip()
+            fallback = fallback_agent_key()
             if fallback and fallback != model_key:
                 log.warning(
                     "Backend for '%s' unavailable (%s); falling back to %s",
@@ -312,6 +323,8 @@ async def run_agent_to_completion(
         permission_callback=permission_cb,
         allowed_tools=agent.tools or None,
         user_id=user_id,
+        # Booked to the delegate in the request ledger, not to "interactive".
+        budget_caller=f"delegate:{agent.slug}",
     )
 
     prompt = runtime_context.build_agent_context(agent, user_id, task, context)

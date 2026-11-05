@@ -43,7 +43,7 @@ def _filter_balances_by_networks(balances: dict, enabled_networks: set) -> dict:
     """
     Filter portfolio balances to only include enabled networks for Gateway connectors.
 
-    CEX connectors (binance, hyperliquid, etc.) are never filtered.
+    CEX connectors (binance, kraken, etc.) are never filtered.
     Only Gateway/DEX connectors (solana-mainnet-beta, ethereum-mainnet, etc.) are filtered.
 
     Args:

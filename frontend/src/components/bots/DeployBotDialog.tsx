@@ -400,7 +400,7 @@ export function DeployBotDialog({
       onClick={handleClose}
     >
       <div
-        className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-2xl"
+        className="w-full max-w-2xl max-h-[calc(var(--app-viewport-height)*0.85)] flex flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

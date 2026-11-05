@@ -10,7 +10,9 @@ from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
 
 from condor.fetchers.market_data import fetch_current_price
+from condor.service_health import health
 from config_manager import get_client
+from routines.base import RoutineResult
 from utils.telegram_formatters import escape_markdown_v2
 
 logger = logging.getLogger(__name__)
@@ -22,13 +24,17 @@ CONTINUOUS = True
 class Config(BaseModel):
     """Live price monitor with configurable alerts."""
 
-    connector: str = Field(default="binance", description="CEX connector name")
-    trading_pair: str = Field(default="BTC-USDT", description="Trading pair to monitor")
+    connector: str = Field(
+        default="lighter_perpetual", description="CEX connector name"
+    )
+    trading_pair: str = Field(default="BTC-USDC", description="Trading pair to monitor")
     threshold_pct: float = Field(default=1.0, description="Alert threshold in %")
     interval_sec: int = Field(default=10, description="Check interval in seconds")
 
 
-async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def run(
+    config: Config, context: ContextTypes.DEFAULT_TYPE
+) -> str | RoutineResult:
     """
     Monitor price continuously.
 
@@ -40,7 +46,7 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
 
     client = await get_client(chat_id, context=context)
     if not client:
-        return "No server available"
+        return RoutineResult(text="No server available", failed=True)
 
     # State for tracking
     state = {
@@ -74,6 +80,7 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
     )
 
     history = []
+    service = f"Price feed {getattr(context, 'server_name', 'selected server')}/{config.connector}/{config.trading_pair}"
 
     try:
         # Main monitoring loop
@@ -82,17 +89,17 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
                 # Re-acquire client each iteration to avoid stale sessions
                 client = await get_client(chat_id, context=context)
                 if not client:
-                    await asyncio.sleep(config.interval_sec)
-                    continue
+                    raise ConnectionError("No server available")
 
                 # Get current price
                 current_price = await fetch_current_price(
-                    client, config.connector, config.trading_pair
+                    client, config.connector, config.trading_pair, strict=True
                 )
 
                 if not current_price:
-                    await asyncio.sleep(config.interval_sec)
-                    continue
+                    raise RuntimeError("The feed returned no valid price")
+
+                await health.report(chat_id, service, True)
 
                 # Initialize on first price
                 if state["initial_price"] is None:
@@ -171,6 +178,7 @@ async def run(config: Config, context: ContextTypes.DEFAULT_TYPE) -> str:
                 raise  # Re-raise to exit the loop
             except Exception as e:
                 logger.error(f"Price monitor error: {e}")
+                await health.report(chat_id, service, False)
 
             # Wait for next check
             await asyncio.sleep(config.interval_sec)

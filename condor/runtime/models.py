@@ -44,7 +44,7 @@ class SessionSpec(BaseModel):
     agent_slug: str = Field(
         default="",
         description="Binds the session to a specific Agent. Empty resolves the "
-        "default one, Condor — not the absence of an agent (FEAT-033).",
+        "default one, Griffin — not the absence of an agent (FEAT-033).",
     )
     conversation_id: str = Field(
         default="",
@@ -77,7 +77,7 @@ class SessionInfo(BaseModel):
     agent_key: str
     user_id: int | None = Field(
         default=None,
-        description="Owning Condor user. Authorization compares against this.",
+        description="Owning Griffin user. Authorization compares against this.",
     )
     surface: str = Field(default="", description="Originating frontend: tg/web/mcp.")
     slot: str = Field(default="", description="Web slot id; empty on other surfaces.")
@@ -93,7 +93,7 @@ class SessionInfo(BaseModel):
     last_prompt_at: datetime | None = None
     agent_slug: str = ""
     label: str = Field(
-        default="Condor", description="Display name of whoever is answering."
+        default="Griffin", description="Display name of whoever is answering."
     )
     conversation_id: str = Field(
         default="",

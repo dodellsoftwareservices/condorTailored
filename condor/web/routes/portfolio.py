@@ -13,6 +13,7 @@ from condor.fetchers.portfolio import (
     dedupe_unified_accounts,
 )
 from condor.server_data_service import ServerDataType, get_server_data_service
+from condor.venues import is_test_venue
 from condor.web.auth import require_server_access
 from condor.web.models import (
     BalanceItem,
@@ -147,6 +148,7 @@ async def get_portfolio_history(
     range: str = Query("1D", pattern="^(1D|1W|1M|3M)$"),
     breakdown: bool = Query(False),
     user: WebUser = Depends(require_server_access),
+    live_only: bool = False,
 ):
 
     # The raw snapshots are the same regardless of *breakdown* (parsing happens
@@ -167,6 +169,15 @@ async def get_portfolio_history(
         logger.debug("Portfolio history keys: %s", list(history.keys()))
 
     entries, keyed = _extract_snapshot_entries(history)
+    if live_only:
+        # Removed paper/testnet credentials still have historical snapshots.
+        # Recompute real-fund totals and token series from the same filtered
+        # state rather than treating their disappearance as a trading loss.
+        entries = [
+            (ts, _live_snapshot(_snapshot_state(snapshot, keyed)))
+            for ts, snapshot in entries
+        ]
+        keyed = True
 
     # Forward-fill: track per-connector totals so missing exchanges
     # carry forward their last known value instead of dropping to 0.
@@ -205,6 +216,20 @@ async def get_portfolio_history(
 
 
 _SNAPSHOT_LIST_KEYS = ("data", "snapshots", "history", "points", "results")
+
+
+def _live_snapshot(state: Any) -> dict:
+    if not isinstance(state, dict):
+        return {}
+    return {
+        account: {
+            connector: balances
+            for connector, balances in connectors.items()
+            if not is_test_venue(connector)
+        }
+        for account, connectors in state.items()
+        if isinstance(connectors, dict)
+    }
 
 
 def _snapshot_state(snapshot: Any, keyed: bool) -> Any:

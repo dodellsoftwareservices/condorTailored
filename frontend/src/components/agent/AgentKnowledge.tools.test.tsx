@@ -58,7 +58,7 @@ function brain(
     server_name: "",
     tools: [
       tool("delegate", "condor", "Hand a long task to a background agent instance"),
-      tool("run_code", "condor", "Run a Python snippet inside Condor"),
+      tool("run_code", "condor", "Run a Python snippet inside Griffin"),
       tool("get_candles", "hummingbot", "OHLCV candles for a pair"),
       tool("manage_clmm", "hummingbot", "Direct CLMM position operations"),
     ],
@@ -144,7 +144,7 @@ describe("the tools tab", () => {
     for (const name of ["delegate", "run_code", "get_candles", "manage_clmm"]) {
       expect(rowFor(name)).toBeTruthy();
     }
-    expect(container.textContent).toContain("Condor");
+    expect(container.textContent).toContain("Griffin");
     expect(container.textContent).toContain("Hummingbot");
     // The one-liner the panel renders under each name.
     expect(container.textContent).toContain("OHLCV candles for a pair");

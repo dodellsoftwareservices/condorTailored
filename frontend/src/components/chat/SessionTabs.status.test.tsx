@@ -75,7 +75,7 @@ afterEach(() => {
 
 describe("SessionTabs status marker", () => {
   it("shows no live dot for a slot the backend reports as not alive", async () => {
-    await render([slot({ alive: false, label: "Arbitrage" })]);
+    await render([slot({ alive: false, label: "Arbitrage", agent_slug: "arbitrage" })]);
 
     // The lie this fixes: green, on a slot with nothing running behind it.
     expect(liveDots()).toHaveLength(0);

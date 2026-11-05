@@ -37,7 +37,7 @@ export function DockResizeHandle({
   /** What this seam separates, for the reader who cannot see it. */
   label: string;
 }) {
-  const { onMouseDown, isDragging } = useResizeDrag({
+  const { onMouseDown, onPointerDown, isDragging } = useResizeDrag({
     axis: "x",
     value: width,
     onChange: onWidth,
@@ -64,6 +64,8 @@ export function DockResizeHandle({
       aria-valuemin={min}
       tabIndex={0}
       onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
+      style={{ touchAction: "none" }}
       onKeyDown={onKeyDown}
       onDoubleClick={() => onWidth(reset)}
       title="Drag to resize — double-click to reset"

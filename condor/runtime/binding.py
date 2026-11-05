@@ -60,7 +60,7 @@ def _digest(part: object) -> str:
 class SessionBinding:
     """Resolved identity for a session: who answers, with what tools and memory."""
 
-    label: str = "Condor"
+    label: str = "Griffin"
     agent_slug: str = ""
     agent_key: str = ""
     instructions: str = ""
@@ -174,7 +174,7 @@ def resolve(
         # The default agent is the fallback, so it cannot fail closed: an
         # unreadable agents/condor/AGENT.md would take every chat down with it.
         # A bare record is exactly what the chat ran on before it had one.
-        agent = Agent(slug=CHAT_SLUG, name="Condor")
+        agent = Agent(slug=CHAT_SLUG, name="Griffin")
         log.warning("No %s/AGENT.md — the chat starts without instructions", CHAT_SLUG)
 
     # An explicit model on the spec beats the Agent's configured default: the

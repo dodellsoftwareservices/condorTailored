@@ -17,7 +17,6 @@ import { OWNER_ONLY_HINT, useServerPermission } from "@/hooks/useServerPermissio
 import { type ConnectorInfo, type CredentialInfo, type GatewayWalletGroup, api } from "@/lib/api";
 import { CREDENTIAL_FIELD_PATTERNS } from "@/lib/credential-fields";
 import { credentialsQuery, gatewayWalletsQuery, invalidateCredentialQueries } from "@/lib/queryClient";
-import { ConnectHyperliquid } from "./ConnectHyperliquid";
 import { ImportGatewayWallet, type WalletChain } from "./ImportGatewayWallet";
 
 type Step =
@@ -25,10 +24,7 @@ type Step =
   | "select-type"
   | "select-exchange"
   | "fill-fields"
-  | "connect-hyperliquid"
   | "import-wallet";
-
-const isHyperliquid = (name: string) => name.startsWith("hyperliquid");
 
 interface AddFlowState {
   step: Step;
@@ -86,13 +82,13 @@ export function ApiKeysSettings() {
   });
 
   // Same query key as GatewaySettings so the status is shared across the two tabs.
-  const { data: gatewayStatus } = useQuery({
+  const { data: gatewayStatus, error: gatewayStatusError, isLoading: loadingGatewayStatus } = useQuery({
     queryKey: ["gateway-status", server],
     queryFn: () => api.getGatewayStatus(server!),
     enabled: !!server,
     retry: false,
   });
-  const gatewayRunning = gatewayStatus?.running === true;
+  const gatewayRunning = !gatewayStatusError && gatewayStatus?.running === true;
 
   const { data: connectorsData, isLoading: loadingConnectors } = useQuery({
     queryKey: ["settings-connectors", server, flow.connectorType],
@@ -101,7 +97,13 @@ export function ApiKeysSettings() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: configMapData, isLoading: loadingConfigMap } = useQuery({
+  const {
+    data: configMapData,
+    isLoading: loadingConfigMap,
+    isFetching: fetchingConfigMap,
+    error: configMapError,
+    refetch: retryConfigMap,
+  } = useQuery({
     queryKey: ["settings-config-map", server, flow.connectorName],
     queryFn: () => api.getConnectorConfigMap(server!, flow.connectorName),
     enabled: !!server && !!flow.connectorName && flow.step === "fill-fields",
@@ -125,7 +127,7 @@ export function ApiKeysSettings() {
     [qc, server],
   );
 
-  // Adding, deleting or (via ConnectHyperliquid, below) connecting a credential
+  // Adding, deleting or connecting a credential invalidates the cached list:
   // has to invalidate more than the credential list itself — see
   // invalidateCredentialQueries (CORR-353).
   const invalidate = () => invalidateCredentialQueries(qc, server);
@@ -137,11 +139,15 @@ export function ApiKeysSettings() {
   const [restartNotice, setRestartNotice] = useState("");
 
   const addMut = useMutation({
-    mutationFn: () =>
-      api.addCredential(server!, {
+    mutationFn: () => {
+      if (!configMapData?.config_map || configMapError) {
+        throw new Error("Load this connector's configuration fields before adding credentials.");
+      }
+      return api.addCredential(server!, {
         connector_name: flow.connectorName,
         credentials: flow.values,
-      }),
+      });
+    },
     onSuccess: (res) => {
       setRestartNotice(
         res.restart_required
@@ -218,13 +224,6 @@ export function ApiKeysSettings() {
     return map;
   }, [credentials]);
 
-  // Only treat Hyperliquid as connected once BOTH the spot and perpetual credentials exist. If only
-  // one is present (e.g. a partial-save failure), keep the connect flow available to add the other.
-  const hyperliquidConnected = useMemo(() => {
-    const names = new Set(credentials.map((c) => c.connector_name));
-    return names.has("hyperliquid") && names.has("hyperliquid_perpetual");
-  }, [credentials]);
-
   // Parse config map fields
   const configFields = useMemo(() => {
     if (!configMapData?.config_map) return [];
@@ -282,42 +281,8 @@ export function ApiKeysSettings() {
             </button>
           ))}
         </div>
-
-        <button
-          disabled={hyperliquidConnected}
-          onClick={() =>
-            setFlow({ ...INITIAL_FLOW, step: "connect-hyperliquid", connectorName: "hyperliquid_perpetual" })
-          }
-          className="flex w-full items-center justify-between rounded-lg border border-[#5ce0c6]/40 bg-[#5ce0c6]/5 p-4 text-left transition-colors hover:border-[var(--color-border-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[#5ce0c6]/40"
-        >
-          <span>
-            <span className="text-sm font-medium text-[var(--color-text)]">Connect Hyperliquid</span>
-            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              {hyperliquidConnected
-                ? "Already connected — remove the existing Hyperliquid keys to reconnect."
-                : "Connect wallet to Hyperliquid (spot + perpetual)"}
-            </p>
-          </span>
-          {hyperliquidConnected ? (
-            <Check className="h-7 w-7 shrink-0 text-[var(--color-primary)]" />
-          ) : (
-            <img src="/hyperliquid.png" alt="Hyperliquid" className="h-7 w-7 shrink-0 rounded-full" />
-          )}
-        </button>
+        {/* Hyperliquid removed: the venue does not serve this region. */}
       </div>
-    );
-  }
-
-  if (flow.step === "connect-hyperliquid") {
-    return (
-      <ConnectHyperliquid
-        server={server}
-        onBack={() => setFlow({ ...INITIAL_FLOW, step: "select-type" })}
-        onDone={() => {
-          invalidate();
-          setFlow(INITIAL_FLOW);
-        }}
-      />
     );
   }
 
@@ -402,14 +367,15 @@ export function ApiKeysSettings() {
                   disabled={alreadyConnected}
                   onMouseEnter={alreadyConnected ? undefined : () => prefetchConfigMap(c.name)}
                   onFocus={alreadyConnected ? undefined : () => prefetchConfigMap(c.name)}
-                  onClick={() =>
+                  onClick={() => {
+                    addMut.reset();
                     setFlow({
                       ...flow,
-                      step: isHyperliquid(c.name) ? "connect-hyperliquid" : "fill-fields",
+                      step: "fill-fields",
                       connectorName: c.name,
                       values: {},
-                    })
-                  }
+                    });
+                  }}
                   className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
                     alreadyConnected
                       ? "border-[var(--color-primary)]/30 bg-[var(--color-primary)]/5 text-[var(--color-text-muted)] cursor-default"
@@ -458,6 +424,22 @@ export function ApiKeysSettings() {
           <div className="flex items-center gap-2 py-4 text-xs text-[var(--color-text-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading fields...
           </div>
+        ) : configMapError ? (
+          <div className="space-y-3">
+            <div role="alert" className="text-xs text-[var(--color-red)]">
+              <p>Could not load configuration fields for {flow.connectorName}.</p>
+              <p className="mt-1">{configMapError.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { void retryConfigMap(); }}
+              disabled={fetchingConfigMap}
+              className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text)] disabled:opacity-50"
+            >
+              {fetchingConfigMap && <Loader2 className="h-3 w-3 animate-spin" />}
+              Retry loading fields
+            </button>
+          </div>
         ) : (
           <div className="space-y-3">
             {configFields.map((f) => (
@@ -498,14 +480,14 @@ export function ApiKeysSettings() {
 
             {configFields.length === 0 && (
               <p className="text-xs text-[var(--color-text-muted)]">
-                No configuration fields found for this connector.
+                This connector does not require configuration fields.
               </p>
             )}
 
             <div className="flex items-center gap-2 pt-2">
               <button
                 onClick={() => addMut.mutate()}
-                disabled={addMut.isPending}
+                disabled={addMut.isPending || !configMapData?.config_map}
                 className="flex items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[var(--color-primary)]/80 disabled:opacity-50"
               >
                 {addMut.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -549,7 +531,11 @@ export function ApiKeysSettings() {
                 ? OWNER_ONLY_HINT
                 : gatewayRunning
                   ? undefined
-                  : "Gateway is not running — start it from the Gateway tab."
+                  : gatewayStatusError
+                    ? "Gateway status is unavailable — retry from the Gateway tab."
+                    : loadingGatewayStatus
+                      ? "Checking Gateway status..."
+                      : "Gateway is not running — start it from the Gateway tab."
             }
             className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] transition-colors hover:border-[var(--color-border-hover)] hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[var(--color-border)] disabled:hover:bg-[var(--color-surface)]"
           >

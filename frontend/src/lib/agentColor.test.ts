@@ -14,7 +14,7 @@ describe("agentColorVar", () => {
   });
 
   it("only ever answers with the validated series palette", () => {
-    const ids = ["", "condor", "brigado", "backpack_mm", "orca-lp", "Condor", "a", "zz"];
+    const ids = ["", "condor", "brigado", "backpack_mm", "orca-lp", "Griffin", "a", "zz"];
     for (const id of ids) expect(AGENT_COLOR_VARS).toContain(agentColorVar(id));
   });
 
@@ -24,7 +24,7 @@ describe("agentColorVar", () => {
     // roster onto one or two buckets, which is exactly what summing char codes
     // over ids this short and this similar does.
     const roster = [
-      "Condor",
+      "Griffin",
       "Brigado",
       "Backpack MM",
       "orca-lp",
@@ -47,7 +47,7 @@ describe("speakerNames", () => {
       msg({ role: "user", text: "hi" }),
       msg({ role: "assistant", text: "hello" }),
     ];
-    expect(speakerNames(messages, "Condor")).toEqual(["Condor", "Condor"]);
+    expect(speakerNames(messages, "Griffin")).toEqual(["Griffin", "Griffin"]);
   });
 
   it("switches speaker at the handover divider, not before it", () => {
@@ -56,7 +56,7 @@ describe("speakerNames", () => {
       msg({ role: "system", kind: "switch", text: "Switched to Brigado" }),
       msg({ role: "assistant", text: "after" }),
     ];
-    expect(speakerNames(messages, "Condor")).toEqual(["Condor", "Brigado", "Brigado"]);
+    expect(speakerNames(messages, "Griffin")).toEqual(["Griffin", "Brigado", "Brigado"]);
   });
 
   it("keeps a pre-handover turn on its own agent when the binding has moved on", () => {
@@ -69,9 +69,9 @@ describe("speakerNames", () => {
       msg({ role: "system", kind: "switch", text: "Switched to Brigado" }),
       msg({ role: "assistant", text: "after", agentSlug: "brigado" }),
     ];
-    const resolve = (slug: string) => (slug === "brigado" ? "Brigado" : "Condor");
+    const resolve = (slug: string) => (slug === "brigado" ? "Brigado" : "Griffin");
     expect(speakerNames(messages, "Brigado", resolve)).toEqual([
-      "Condor",
+      "Griffin",
       "Brigado",
       "Brigado",
     ]);
@@ -83,14 +83,14 @@ describe("speakerNames", () => {
     // disagrees with the walk — the walk is the fallback, not the truth.
     const messages = [
       msg({ role: "assistant", text: "brigado's", agentSlug: "brigado" }),
-      msg({ role: "system", kind: "switch", text: "Switched to Condor" }),
+      msg({ role: "system", kind: "switch", text: "Switched to Griffin" }),
       msg({ role: "assistant", text: "condor's", agentSlug: "" }),
     ];
-    const resolve = (slug: string) => (slug === "brigado" ? "Brigado" : "Condor");
-    expect(speakerNames(messages, "Condor", resolve)).toEqual([
+    const resolve = (slug: string) => (slug === "brigado" ? "Brigado" : "Griffin");
+    expect(speakerNames(messages, "Griffin", resolve)).toEqual([
       "Brigado",
-      "Condor",
-      "Condor",
+      "Griffin",
+      "Griffin",
     ]);
   });
 
@@ -104,9 +104,9 @@ describe("speakerNames", () => {
       msg({ role: "user", text: "and now?" }),
       msg({ role: "assistant", text: "modern", agentSlug: "brigado" }),
     ];
-    const resolve = (slug: string) => (slug === "brigado" ? "Brigado" : "Condor");
-    expect(speakerNames(messages, "Condor", resolve)).toEqual([
-      "Condor",
+    const resolve = (slug: string) => (slug === "brigado" ? "Brigado" : "Griffin");
+    expect(speakerNames(messages, "Griffin", resolve)).toEqual([
+      "Griffin",
       "Brigado",
       "Brigado",
       "Brigado",
@@ -120,11 +120,11 @@ describe("speakerNames", () => {
       msg({ role: "system", kind: "routine", text: "Switched to nothing at all" }),
       msg({ role: "assistant", text: "and still me" }),
     ];
-    expect(speakerNames(messages, "Condor")).toEqual([
-      "Condor",
-      "Condor",
-      "Condor",
-      "Condor",
+    expect(speakerNames(messages, "Griffin")).toEqual([
+      "Griffin",
+      "Griffin",
+      "Griffin",
+      "Griffin",
     ]);
   });
 });

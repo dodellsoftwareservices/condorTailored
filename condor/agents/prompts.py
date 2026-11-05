@@ -49,7 +49,7 @@ def _clip(text: str, limit: int) -> str:
 # stating "trade ONLY via the create_*_executor tools" to a controller-mode agent contradicts the
 # [CONTROLLER MODE] block later in the same prompt, so the surface is chosen once here.
 BASE_PROMPT_LIVE_EXECUTORS = """\
-You are an autonomous trading agent running inside Condor.
+You are an autonomous trading agent running inside Griffin.
 
 RULES:
 - Trade ONLY via the create_*_executor tools — create_position_executor,
@@ -67,7 +67,7 @@ retry ONCE. Journal the error and fix as a learning.
 """
 
 BASE_PROMPT_LIVE_CONTROLLER = """\
-You are an autonomous trading agent running inside Condor.
+You are an autonomous trading agent running inside Griffin.
 
 RULES:
 - You trade by steering the controllers of the bot you operate — see [CONTROLLER MODE]
@@ -88,7 +88,7 @@ signature and retry ONCE the same way.
 """
 
 BASE_PROMPT_DRY_RUN = """\
-You are an autonomous trading agent running inside Condor in 🧪 DRY RUN mode.
+You are an autonomous trading agent running inside Griffin in 🧪 DRY RUN mode.
 
 RULES:
 - This is OBSERVATION ONLY. Do NOT create or stop executors, and do NOT deploy,

@@ -68,11 +68,10 @@ export function NotificationBell() {
 
   const items = data?.items ?? [];
   const unread = data?.unread ?? 0;
+  const hasUnread = unread > 0;
 
-  // The dock icon carries the same number as the bell (FEAT-082). Not a second
-  // source of truth: it is a second render of the count this component already
-  // holds, so it cannot drift from what the dropdown shows, and it follows the
-  // bell through the poll, a live socket write and marking everything read.
+  // The OS dock count and toolbar dot share the same unread state (FEAT-082),
+  // following polling, socket updates, and marking notifications read.
   useEffect(() => setAppBadge(unread), [unread]);
 
   // A click on an OS notification lands here too (FEAT-083). `sw.js` focuses
@@ -99,7 +98,7 @@ export function NotificationBell() {
     setOpen(next);
     // Opening the list *is* reading it. The badge is there to pull the user in,
     // so leaving it lit after they looked would train them to ignore it.
-    if (next && unread > 0) markRead.mutate(undefined);
+    if (next && hasUnread) markRead.mutate(undefined);
   };
 
   const openItem = (n: AppNotification) => {
@@ -115,14 +114,13 @@ export function NotificationBell() {
         onClick={toggle}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="relative rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-accent)]"
-        title={unread > 0 ? `${unread} unread notification(s)` : "Notifications"}
+        className="icon-button relative"
+        aria-label={hasUnread ? "Unread notifications" : "Notifications"}
+        title={hasUnread ? "Unread notifications" : "Notifications"}
       >
         <Bell className="h-4 w-4" />
-        {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--color-red)] px-1 text-[9px] font-bold leading-none text-white">
-            {unread > 9 ? "9+" : unread}
-          </span>
+        {hasUnread && (
+          <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 h-2 w-2 rounded-full bg-neutral-400" />
         )}
       </button>
 

@@ -51,9 +51,14 @@ const BASE: AdminPerson = {
     { server: "local", permission: "", implicit: false },
   ],
   known: true,
+  two_factor_enabled: false,
 };
 
-function render(person: AdminPerson, onSetServerAccess = vi.fn()) {
+function render(
+  person: AdminPerson,
+  onSetServerAccess = vi.fn(),
+  onResetTwoFactor = vi.fn(),
+) {
   act(() => {
     root.render(
       <PersonDetail
@@ -61,6 +66,7 @@ function render(person: AdminPerson, onSetServerAccess = vi.fn()) {
         onSetRole={vi.fn()}
         onSetServerAccess={onSetServerAccess}
         onSetCodeRun={vi.fn()}
+        onResetTwoFactor={onResetTwoFactor}
         rolePending={false}
         pendingServer={null}
       />,
@@ -226,6 +232,38 @@ describe("a person who already has access", () => {
   });
 });
 
+describe("a person with 2FA on", () => {
+  const withTwoFactor: AdminPerson = { ...BASE, role: "user", two_factor_enabled: true };
+
+  it("offers the admin reset escape hatch", () => {
+    render(withTwoFactor);
+
+    expect(
+      [...container.querySelectorAll("button")].some((b) => b.textContent === "Reset 2FA"),
+    ).toBe(true);
+  });
+
+  it("calls the reset handler, not a mutation this panel owns directly", () => {
+    const onResetTwoFactor = vi.fn();
+    render(withTwoFactor, vi.fn(), onResetTwoFactor);
+
+    const resetButton = [...container.querySelectorAll("button")].find(
+      (b) => b.textContent === "Reset 2FA",
+    );
+    click(resetButton!);
+
+    expect(onResetTwoFactor).toHaveBeenCalledOnce();
+  });
+
+  it("has no reset button for someone without 2FA on", () => {
+    render({ ...withTwoFactor, two_factor_enabled: false });
+
+    expect(
+      [...container.querySelectorAll("button")].some((b) => b.textContent === "Reset 2FA"),
+    ).toBe(false);
+  });
+});
+
 describe("an admin", () => {
   const admin: AdminPerson = {
     ...BASE,
@@ -261,6 +299,14 @@ describe("an admin", () => {
 
     expect(container.textContent).toContain("ADMIN_USER_ID");
   });
+
+  it("offers no 2FA reset for an admin, even with 2FA on — pinned, not an oversight: the backend route has no self-target check, so showing this on an admin's own row would let them drop their own 2FA with no code", () => {
+    render({ ...admin, two_factor_enabled: true });
+
+    expect(
+      [...container.querySelectorAll("button")].some((b) => b.textContent === "Reset 2FA"),
+    ).toBe(false);
+  });
 });
 
 describe("an id that holds a grant but has no user record", () => {
@@ -282,6 +328,7 @@ describe("an id that holds a grant but has no user record", () => {
       { server: "local", permission: "trader", implicit: false },
     ],
     known: false,
+    two_factor_enabled: false,
   };
 
   it("explains that the access is live and the record is gone", () => {

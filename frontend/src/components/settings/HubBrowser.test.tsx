@@ -33,7 +33,7 @@ declare global {
 const TRUST =
   "The hub is a discovery service, not a security boundary. A validated badge " +
   "means a human reviewed one submitted revision once; it is not a signature, " +
-  "Condor verifies no bundle against it, and it does not shorten this review. " +
+  "Griffin verifies no bundle against it, and it does not shorten this review. " +
   "Whatever you install arrives muted and unstarted, and what protects you is " +
   "reading it.";
 

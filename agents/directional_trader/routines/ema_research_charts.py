@@ -16,6 +16,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
 
+from condor.venues import data_connector_for
 from config_manager import get_client
 
 logger = logging.getLogger(__name__)
@@ -47,10 +48,10 @@ class Config(BaseModel):
     """EMA trend research — sweep EMA combos, score by Sharpe × persistence, show current signal state."""
 
     connector: str = Field(
-        default="binance_perpetual", description="Exchange connector"
+        default="lighter_perpetual", description="Exchange connector"
     )
     pairs: str = Field(
-        default="BTC-USDT,ETH-USDT,SOL-USDT",
+        default="BTC-USDC,ETH-USDC,SOL-USDC",
         description="Comma-separated trading pairs",
     )
     timeframe: str = Field(
@@ -82,6 +83,9 @@ def _extract_records(result):
 
 
 async def _fetch_df(client, connector: str, pair: str, interval: str, days: int):
+    # Candles are market data, which the API serves for mainnet venues only, so a
+    # test venue is researched off its mainnet counterpart.
+    connector = data_connector_for(connector)
     result = None
     try:
         result = await client.market_data.get_candles_last_days(
