@@ -406,3 +406,85 @@ def test_history_only_accepts_the_known_desk_accounts():
         assert record_equity(account, NOW, 1, created=NOW - 1, starting=1)
     with pytest.raises(ValueError):
         record_equity("../etc/passwd", NOW, 1, created=NOW - 1, starting=1)
+
+
+def _acct(account_id, points):
+    return {
+        "id": account_id,
+        "status": "online",
+        "points": [{"timestamp": t, "equity": e} for t, e in points],
+        "starting_capital": 100.0,
+        "equity": points[-1][1],
+        "outcomes_complete": True,
+    }
+
+
+def test_a_stale_alpaca_mark_is_not_carried_into_a_false_cliff():
+    """Regression: Alpaca's last mark was two days old while the desks were fresh, and
+    the combined line stepped ~$1.3k down in the few minutes before 'now'."""
+    now = NOW
+    fresh = now - 300
+    stale_alpaca = now - 2 * DAY
+    alpaca = _acct("alpaca", [(stale_alpaca, 100.0), (now, 90.0)])
+    desk = _acct("kraken_sim", [(fresh, 100.0), (now, 100.0)])
+    series = dashboard._combined([alpaca, desk], now)["points"]
+    assert [p["timestamp"] for p in series] == [now]  # no point on the stale carry
+
+
+def test_alpaca_mark_is_still_carried_across_a_closed_overnight():
+    now = NOW
+    alpaca = _acct("alpaca", [(now - 18 * 3600, 100.0)])
+    desk = _acct("kraken_sim", [(now - 600, 100.0)])
+    series = dashboard._combined([alpaca, desk], now)["points"]
+    assert [p["equity"] for p in series] == [200.0]
+
+
+def test_observed_alpaca_equity_is_bucketed_and_only_for_known_accounts():
+    from condor.dashboard_history import record_observation
+
+    first = record_observation("alpaca", NOW, 100.0)
+    again = record_observation("alpaca", NOW + 10, 101.0)  # same five-minute bucket
+    later = record_observation("alpaca", NOW + 400, 102.0)
+    assert len(first) == len(again) == 1 and again[0]["equity"] == 101.0
+    assert [p["equity"] for p in later] == [101.0, 102.0]
+    with pytest.raises(ValueError):
+        record_observation("kraken_sim", NOW, 1.0)  # a desk keeps its opening point
+    with pytest.raises(ValueError):
+        record_observation("../x", NOW, 1.0)
+
+
+def test_dashboard_records_alpaca_equity_and_merges_earlier_observations(api_client):
+    from condor.dashboard_history import record_observation
+
+    client, _, _ = api_client
+    record_observation("alpaca", NOW - 3600, 100123.0)
+    data = client.get("/dashboard/paper?range=1M").json()
+    alpaca = next(a for a in data["accounts"] if a["id"] == "alpaca")
+    marks = {p["timestamp"]: p["equity"] for p in alpaca["points"]}
+    assert marks[NOW - 3600] == 100123.0  # an earlier observation is merged in
+    assert marks[NOW] == 100500  # and what this read showed is recorded
+    saved = json.loads(
+        (dashboard_history_dir() / "dashboard" / "alpaca.json").read_text()
+    )
+    assert saved[-1] == {"timestamp": NOW, "equity": 100500}
+
+
+def dashboard_history_dir():
+    from condor import dashboard_history
+
+    return dashboard_history.data_dir()
+
+
+def test_alpaca_sampler_reads_through_the_dashboard_and_swallows_failures(
+    monkeypatch,
+):
+    import asyncio
+
+    from condor import dashboard_history
+
+    reader = AsyncMock(return_value={"equity": 1})
+    monkeypatch.setattr(dashboard, "_alpaca", reader)
+    asyncio.run(dashboard_history.sample_alpaca_equity())
+    reader.assert_awaited_once()
+    reader.side_effect = OSError("broker down")
+    asyncio.run(dashboard_history.sample_alpaca_equity())  # must not raise

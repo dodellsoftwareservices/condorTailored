@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 
 from condor.asyncutil import SingleFlight
-from condor.dashboard_history import record_equity
+from condor.dashboard_history import record_equity, record_observation
 from condor.dashboard_metrics import (
     alpaca_outcomes,
     clean_points,
@@ -147,7 +147,25 @@ async def _alpaca(period: str, now: float) -> dict:
             )
     else:
         account["notes"].append("Closing-trade history could not be loaded.")
+    _merge_observed(account, now)
     return _finish(account, period, now)
+
+
+def _merge_observed(account: dict, now: float) -> None:
+    """Record the equity just read and merge everything the dashboard observed before.
+
+    The broker's own history is daily for long ranges and may be withheld after a
+    corporate action, which left long stretches with only a stale last point. Observed
+    marks fill that in from now on without inventing any.
+    """
+    if account.get("status") != "online" or account.get("equity") is None:
+        return
+    try:
+        observed = record_observation("alpaca", now, account["equity"])
+    except (OSError, ValueError):
+        logger.exception("Could not record Alpaca dashboard history")
+        return
+    account["points"] = [*account["points"], *observed]
 
 
 # (account id, label, service getter). Ids are the history-file keys, so "kraken_sim"
@@ -228,7 +246,10 @@ def _combined(accounts: list[dict], now: float) -> dict:
         for account, rows, index in zip(accounts, histories, indexes):
             position = bisect_right(index, stamp) - 1
             # Do not backfill an unobserved simulation with invented prices.
-            tolerance = 4 * 86400 if account["id"] == "alpaca" else 900
+            # Alpaca is observed every five minutes, so its last mark is only carried
+            # across a closed overnight. A longer carry drew a false cliff when a stale
+            # mark met a fresh one.
+            tolerance = 86400 if account["id"] == "alpaca" else 900
             if position < 0 or stamp - rows[position]["timestamp"] > tolerance:
                 break
             values.append(rows[position]["equity"])

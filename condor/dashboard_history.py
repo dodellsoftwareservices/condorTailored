@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 # Account keys are chosen by the server, never taken from a URL. One per Kraken desk:
 # spot trader (hodl), market maker, perpetual futures.
 DESK_ACCOUNTS = frozenset({"kraken_sim", "kraken_mm", "kraken_fut"})
+# Accounts whose equity is observed from a broker rather than simulated here. Unlike a
+# desk there is no known opening-cash point, so the history is observations only.
+OBSERVED_ACCOUNTS = frozenset({"alpaca"})
 
 
 def record_equity(
@@ -38,6 +41,27 @@ def record_equity(
             history.append(point)
     # Keep roughly three months of five-minute marks, plus known opening cash.
     history = [history[0], *history[1:][-27000:]]
+    atomic_write_json(path, history)
+    return history
+
+
+def record_observation(account: str, timestamp: float, equity: float) -> list[dict]:
+    """Append one observed equity mark, five-minute buckets, newest replaces the bucket.
+
+    Broker portfolio history is coarse (daily for older ranges) and can be withheld
+    around corporate actions, so the dashboard keeps its own record of what it showed.
+    Never invents a point: only equity the dashboard actually read is stored.
+    """
+    if account not in OBSERVED_ACCOUNTS:
+        raise ValueError("Unknown dashboard history account")
+    path = data_dir() / "dashboard" / f"{account}.json"
+    history = json.loads(path.read_text()) if path.exists() else []
+    point = {"timestamp": timestamp, "equity": equity}
+    if history and int(history[-1]["timestamp"] // 300) == int(timestamp // 300):
+        history[-1] = point
+    else:
+        history.append(point)
+    history = history[-27000:]
     atomic_write_json(path, history)
     return history
 
@@ -79,7 +103,24 @@ async def sample_sim_equity(context=None) -> None:
             )
 
 
+async def sample_alpaca_equity(context=None) -> None:
+    """Record the Alpaca paper equity the dashboard would show, browser closed or not.
+
+    Goes through the dashboard's own reader so the recorded value includes any
+    valuation adjustment and never disagrees with the live figure.
+    """
+    from condor.web.routes import dashboard
+
+    try:
+        await asyncio.wait_for(dashboard._alpaca("1D", time.time()), timeout=30)
+    except Exception as exc:
+        logger.warning("Alpaca equity sample unavailable (%s)", type(exc).__name__)
+
+
 def register_jobs(application) -> None:
     application.job_queue.run_repeating(
         sample_sim_equity, interval=300, first=10, name="dashboard_equity_sample"
+    )
+    application.job_queue.run_repeating(
+        sample_alpaca_equity, interval=300, first=40, name="dashboard_alpaca_sample"
     )
