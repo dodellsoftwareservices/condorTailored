@@ -935,6 +935,61 @@ def summarize_balances(state: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def summarize_sim_balances(state: Any, connector: str) -> list[dict[str, Any]]:
+    """The Kraken simulator's portfolio as the shift report's balance rows."""
+    if not isinstance(state, Mapping):
+        return []
+    try:
+        cash = float(state["cash"])
+        positions = state["positions"]
+        if not isinstance(positions, list):
+            return []
+        rows = [
+            {
+                "account": "master_account",
+                "connector": connector,
+                "token": "USD",
+                "units": cash,
+                "price": 1.0,
+                "value": cash,
+            }
+        ]
+        for position in positions:
+            if not isinstance(position, Mapping):
+                return []
+            rows.append(
+                {
+                    "account": "master_account",
+                    "connector": connector,
+                    "token": str(position["asset"]),
+                    "units": float(position["qty"]),
+                    "price": float(position["mid"]),
+                    "value": float(position["value"]),
+                }
+            )
+        return rows
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return []
+
+
+def quick_counts(session_dir: Path) -> dict[str, int]:
+    """Counts needed by the live status screen, without building a full report."""
+    journal = _read_text(session_dir / "journal.md")
+    archive = _read_text(session_dir / ARCHIVE_NAME)
+    decisions = parse_decisions(archive) + parse_decisions(
+        section(journal, "Decisions")
+    )
+    return {
+        "errors": sum(
+            1
+            for row in decisions
+            if row["action"] == "error"
+            and not row["text"].startswith(_NOT_A_TICK_ERROR)
+        ),
+        "refusals": sum(1 for row in decisions if row["action"] in REFUSAL_ACTIONS),
+    }
+
+
 def _num(value: Any) -> float | None:
     return (
         float(value)
@@ -1123,6 +1178,63 @@ def _performance(payload: Any, unavailable_note: str) -> dict[str, Any]:
     return block
 
 
+def _sim_performance(current: Any, baseline: Any, error: str) -> dict[str, Any]:
+    """Price a simulated shift from its account cost readings, not Hbot executors."""
+    if not isinstance(current, Mapping):
+        return {"available": False, "why": error or "simulator costs unavailable"}
+    if not isinstance(baseline, Mapping):
+        return {
+            "available": False,
+            "why": "simulator costs at shift start were not captured",
+        }
+    try:
+
+        def number(source: Mapping[str, Any], key: str) -> float:
+            value = float(source[key])
+            if not math.isfinite(value):
+                raise ValueError(f"{key} is not finite")
+            return value
+
+        def fees(source: Mapping[str, Any]) -> float:
+            details = source["costs"]
+            if not isinstance(details, Mapping):
+                raise ValueError("cost details unavailable")
+            return number(details, "exchange_fees")
+
+        total = number(current, "equity_pnl") - number(baseline, "equity_pnl")
+        realized = number(current, "realized_pnl") - number(baseline, "realized_pnl")
+        volume = number(current, "traded_volume") - number(baseline, "traded_volume")
+        fee_total = fees(current) - fees(baseline)
+
+        def fills(source: Mapping[str, Any]) -> int:
+            counts = source["fills"]
+            if not isinstance(counts, Mapping):
+                raise ValueError("fill counts unavailable")
+            return int(counts["taker"]) + int(counts["maker"])
+
+        fill_count = fills(current) - fills(baseline)
+        if volume < -0.001 or fee_total < -0.001 or fill_count < 0:
+            raise ValueError(
+                "simulator counters decreased during shift; account may have reset"
+            )
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        return {"available": False, "why": f"simulator cost data invalid: {exc}"}
+    return {
+        "available": True,
+        "reading": "ok",
+        "source": "Kraken simulator account costs, change since shift start",
+        "realized": realized,
+        "unrealized": total - realized,
+        "total": total,
+        "volume": volume,
+        "fees": fee_total,
+        "trade_count": fill_count,
+        "trade_count_unit": "fills",
+        "win_rate": None,
+        "fees_known": True,
+    }
+
+
 def _sum_pnl(blocks: list[dict[str, Any]]) -> dict[str, Any]:
     """A loop's PnL: the sum over its sessions, or ``n/a`` if any session has none."""
     if not blocks:
@@ -1294,6 +1406,24 @@ async def build_report(
     decisions: list[dict[str, Any]] = []
     all_pnl_available = True
     session_files_missing = False
+    sim_loops = [
+        loop_id
+        for loop_id, meta in loops_meta.items()
+        if meta.get("connector") == "kraken_sim" and meta.get("runnable", True)
+    ]
+    sim_current, sim_error = (
+        await _try(condor.get, "/sim/kraken/costs")
+        if sim_loops and condor is not None
+        else (None, "Condor server unavailable")
+    )
+    sim_baseline = record.get("sim_costs_start")
+    if sim_baseline is None:
+        baseline_file = shift_dir / "sim_costs_start.json"
+        if baseline_file.is_file():
+            try:
+                sim_baseline = json.loads(baseline_file.read_text())
+            except (OSError, ValueError):
+                pass
 
     for loop_id, entries in sessions_by_loop.items():
         meta = loops_meta.get(loop_id, {})
@@ -1327,7 +1457,15 @@ async def build_report(
             number = entry.get("session_num") or digest.get("session_num")
             agent = entry.get("agent") or meta.get("agent")
             strategy = entry.get("strategy") or meta.get("strategy")
-            if condor is None:
+            if meta.get("connector") == "kraken_sim":
+                # The simulator has no Hummingbot executor rows. Its account
+                # counters cover the whole shift, so include them once even if
+                # the runner restarted the agent session.
+                if len(pnl_blocks) == 0:
+                    pnl_blocks.append(
+                        _sim_performance(sim_current, sim_baseline, sim_error)
+                    )
+            elif condor is None:
                 pnl_blocks.append(
                     {
                         "available": False,
@@ -1375,9 +1513,13 @@ async def build_report(
         else "ok"
     )
     coverage["pnl"] = (
-        "ok (Condor session route)"
-        if all_pnl_available
-        else "partly or wholly unavailable: see each loop's pnl.why"
+        "ok (Kraken simulator costs)"
+        if sim_loops and all_pnl_available
+        else (
+            "ok (Condor session route)"
+            if all_pnl_available
+            else "partly or wholly unavailable: see each loop's pnl.why"
+        )
     )
 
     usage = llm_usage(record, callers, started, until, ledger_directory)
@@ -1395,16 +1537,29 @@ async def build_report(
     start_rows = record.get("balances_start")
     end_rows = record.get("balances_end")
     balances_note: dict[str, Any] = {}
-    if end_rows is None and hb is not None:
-        state, err = await _try(
-            hb.post, "/portfolio/state", _balance_request(record, refresh=True)
-        )
-        if state is not None:
-            end_rows = summarize_balances(state)
+    if end_rows is None:
+        connectors = {
+            meta.get("connector")
+            for meta in loops_meta.values()
+            if meta.get("runnable", True)
+        }
+        if connectors == {"kraken_sim"} and condor is not None:
+            state, err = await _try(condor.get, "/sim/kraken/portfolio")
+            if state is not None:
+                end_rows = summarize_sim_balances(state, "kraken_sim") or None
+        elif hb is not None:
+            state, err = await _try(
+                hb.post, "/portfolio/state", _balance_request(record, refresh=True)
+            )
+            if state is not None:
+                end_rows = summarize_balances(state)
+        else:
+            state, err = None, "no account client available"
+        if end_rows is not None:
             balances_note["end_captured_by"] = "report (not at shift end)"
             balances_note["end_captured_at"] = utc_iso(now)
         else:
-            balances_note["end_error"] = err
+            balances_note["end_error"] = err or "account returned no usable balances"
     coverage["balances"] = (
         "ok"
         if start_rows is not None and end_rows is not None
@@ -1454,7 +1609,17 @@ async def build_report(
         "llm": usage,
         "events": record.get("events", []),
         "coverage": coverage,
-        "limits": LIMITS_TEXT,
+        "limits": (
+            [
+                "This is a simulated Kraken spot account using live public prices and simulated fills. Execution, liquidity and market impact may differ from real trading.",
+                "One eight-hour shift is a small sample. Its results do not establish a repeatable return.",
+                "Simulated PnL is the change in account equity since shift start, including exchange fees. Realized PnL and fill counts come from simulator cost counters; model and fixed running costs are tracked separately.",
+                "The request ledger records model requests, but this report does not record exact billed tokens or provider charges.",
+                "The decision log and journals show what the agent chose at each tick. Missing sources are marked unavailable.",
+            ]
+            if sim_loops
+            else LIMITS_TEXT
+        ),
         "decisions": {"file": DECISIONS_FILE, "count": len(decisions)},
     }
     atomic_write_json(shift_dir / REPORT_JSON, report, indent=2)
@@ -1646,8 +1811,13 @@ def render_markdown(report: Mapping[str, Any], decisions: list[dict[str, Any]]) 
         + ("" if report["final"] else " (written while the shift was still running)")
     )
     w(f"- model: `{shift['model']}`")
+    venue_label = (
+        "simulated USD"
+        if any(lp.get("connector") == "kraken_sim" for lp in report["loops"])
+        else "quote units, testnet"
+    )
     w(
-        f"- capital allocated: {money(shift['capital_quote'], signed=False)} (quote units, testnet)"
+        f"- capital allocated: {money(shift['capital_quote'], signed=False)} ({venue_label})"
     )
     w(f"- generated: {report['generated_at']}")
     w("")
@@ -1658,10 +1828,11 @@ def render_markdown(report: Mapping[str, Any], decisions: list[dict[str, Any]]) 
         w(f"- {line}")
     n_fills = totals["pnl"].get("trade_count")
     w(
-        f"- Sample size of this report: **{totals['ticks']} ticks** across "
+        f"- Sample size of this report: **{totals['ticks']} "
+        f"{'tick' if totals['ticks'] == 1 else 'ticks'}** across "
         f"{len(report['loops'])} loop(s), "
         + (
-            f"**{int(n_fills)} trades** (closed round trips)"
+            f"**{int(n_fills)} {'fills' if venue_label == 'simulated USD' else 'trades (closed round trips)'}**"
             if isinstance(n_fills, (int, float))
             else "trade count not available"
         )

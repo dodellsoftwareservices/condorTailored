@@ -29,6 +29,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 
 from condor.alpaca_paper import AlpacaAPIError, AlpacaPaperClient, AlpacaTransportError
+from condor.paper_valuation import read_paper_valuation
 from condor.web.auth import get_current_user, require_admin
 from condor.web.models import (
     EquityAccount,
@@ -80,14 +81,19 @@ async def get_equity_account(
 ) -> EquityAccount:
     require_admin(user)
     try:
-        account = await client.get_account()
+        valuation = await read_paper_valuation(client)
     except AlpacaAPIError as e:
         logger.exception("Equity account fetch failed")
         raise equity_upstream_error(
             "equity_provider_error", "Failed to fetch account", e
         ) from None
     return EquityAccount(
-        equity=account.equity, cash=account.cash, buying_power=account.buying_power
+        equity=valuation.equity,
+        cash=valuation.account.cash,
+        buying_power=valuation.account.buying_power,
+        provider_equity=valuation.provider_equity,
+        valuation_adjusted=bool(valuation.adjusted_symbols),
+        valuation_note=" ".join(valuation.notes),
     )
 
 
@@ -98,20 +104,29 @@ async def get_equity_positions(
 ) -> list[EquityPosition]:
     require_admin(user)
     try:
-        positions = await client.get_positions()
+        valuation = await read_paper_valuation(client)
     except AlpacaAPIError as e:
         logger.exception("Equity positions fetch failed")
         raise equity_upstream_error(
             "equity_provider_error", "Failed to fetch positions", e
         ) from None
+    if not valuation.reliable:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "equity_valuation_unverified",
+                "message": "Paper positions require split reconciliation.",
+            },
+        )
     return [
         EquityPosition(
             symbol=p.symbol,
             qty=p.qty,
             market_value=p.market_value,
             unrealized_pl=p.unrealized_pl,
+            valuation_adjusted=p.symbol in valuation.adjusted_symbols,
         )
-        for p in positions
+        for p in valuation.positions
     ]
 
 

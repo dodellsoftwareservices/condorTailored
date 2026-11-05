@@ -16,6 +16,7 @@ a second subscriber never spawns a duplicate poll.
 import asyncio
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -158,6 +159,38 @@ def test_endpoint_still_builds_the_token_breakdown(env):
         {"BTC": 100.0, "ETH": 50.0},
         {"BTC": 120.0, "ETH": 40.0},
     ]
+
+
+def test_live_history_excludes_deleted_testnet_from_totals_and_tokens(env, monkeypatch):
+    _, client = env()
+    monkeypatch.setattr(
+        client.portfolio,
+        "get_history",
+        AsyncMock(
+            return_value=[
+                {
+                    "timestamp": 1000,
+                    "total_value": 10200,
+                    "state": {
+                        "master": {
+                            "binance_perpetual_testnet": [
+                                {"token": "USDT", "value": 10000}
+                            ],
+                            "kraken": [{"token": "XMR", "value": 200}],
+                        }
+                    },
+                }
+            ]
+        ),
+    )
+    response = asyncio.run(
+        get_portfolio_history(
+            name="srv", range="1D", breakdown=True, live_only=True, user=_USER
+        )
+    )
+    assert response.points[0].total_usd == 200
+    assert response.points[0].tokens == {"XMR": 200}
+    assert response.top_tokens == ["XMR"]
 
 
 def test_second_read_of_a_fresh_range_is_served_from_cache(env):

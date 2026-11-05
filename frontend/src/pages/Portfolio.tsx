@@ -10,21 +10,20 @@ import {
   KeyRound,
   ArrowUpRight,
   ArrowDownRight,
-  FlaskConical,
 } from "lucide-react";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { NoServerCard } from "@/components/NoServerCard";
 import { PositionsTab } from "@/components/portfolio/PositionsTab";
-import { SimAccountTab } from "@/components/portfolio/SimAccountTab";
-import { SIM_TAB_LABEL, useSimAccount } from "@/components/portfolio/simAccountData";
+import { SIM_TAB_LABEL, simAssetGroup, simPositions, useSimAccount, type SimVariant } from "@/components/portfolio/simAccountData";
 import { useLpPositions } from "@/hooks/useLpPositions";
 import { useRates } from "@/hooks/useRates";
 import { useServer } from "@/hooks/useServer";
 import { useCondorWebSocket } from "@/hooks/useWebSocket";
 import {
   api,
+  errorStatus,
   type AgentSummary,
   type BalanceItem,
   type ConnectorBalance,
@@ -327,11 +326,15 @@ function ConnectorRow({
   totalPortfolio,
   convertFromUsd,
   currencySymbol,
+  simulated = false,
+  activity,
 }: {
   connector: ConnectorBalance;
   totalPortfolio: number;
   convertFromUsd: (val: number) => number;
   currencySymbol: string;
+  simulated?: boolean;
+  activity?: { label: string; running: boolean };
 }) {
   const [expanded, setExpanded] = useState(true);
   const Chevron = expanded ? ChevronDown : ChevronRight;
@@ -344,9 +347,12 @@ function ConnectorRow({
         onClick={() => setExpanded(!expanded)}
       >
         <td className="px-4 py-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Chevron className="h-4 w-4 text-[var(--color-text-muted)]" />
             <span className="font-semibold">{connector.connector}</span>
+            <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${simulated ? "border-[var(--color-primary)]/40 text-[var(--color-primary)]" : "border-[var(--color-border)] text-[var(--color-text-muted)]"}`}>
+              {simulated ? "Simulated · no real funds" : /testnet|paper_trade|sandbox/i.test(connector.connector) ? "Testnet · no real funds" : "Real funds"}
+            </span>
             <span className="text-xs text-[var(--color-text-muted)]">
               {connector.balances.length} token{connector.balances.length !== 1 ? "s" : ""}
             </span>
@@ -360,14 +366,15 @@ function ConnectorRow({
             )}
           </div>
         </td>
-        <td className="px-4 py-3" />
-        <td className="px-4 py-3" />
+        <td colSpan={2} className="px-4 py-3 text-right text-xs" style={{ color: activity?.running ? "var(--color-text-muted)" : "var(--color-red)" }}>
+          {activity?.label}
+        </td>
         <td className="px-4 py-3 text-right font-semibold tabular-nums">
           {formatCurrency(convertFromUsd(connector.total_usd), currencySymbol)}
         </td>
         <td className="px-4 py-3">
           <span className="text-sm tabular-nums text-[var(--color-text-muted)]">
-            {pct.toFixed(1)}%
+            {simulated ? "Account allocation" : `${pct.toFixed(1)}%`}
           </span>
         </td>
       </tr>
@@ -424,23 +431,23 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
     if (!server) return;
     TIME_PERIODS.forEach((r) => {
       queryClient.prefetchQuery({
-        queryKey: ["portfolio-history", server, r],
-        queryFn: () => api.getPortfolioHistory(server, r),
+        queryKey: ["portfolio-history", server, r, "live"],
+        queryFn: () => api.getPortfolioHistory(server, r, false, true),
         staleTime: 60000,
       });
     });
   }, [server, queryClient]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["portfolio-history", server, range],
-    queryFn: () => api.getPortfolioHistory(server, range),
+    queryKey: ["portfolio-history", server, range, "live"],
+    queryFn: () => api.getPortfolioHistory(server, range, false, true),
     enabled: !!server,
     refetchInterval: 60000,
   });
 
   const { data: breakdownData } = useQuery({
-    queryKey: ["portfolio-history-breakdown", server, range],
-    queryFn: () => api.getPortfolioHistory(server, range, true),
+    queryKey: ["portfolio-history-breakdown", server, range, "live"],
+    queryFn: () => api.getPortfolioHistory(server, range, true, true),
     enabled: !!server && stacked,
     refetchInterval: 60000,
   });
@@ -783,7 +790,7 @@ function PortfolioEvolution({ server, range, convertFromUsd, currencySymbol }: {
 // ── Main Portfolio Page ──
 
 /** Assets is what you hold; Positions is what you are in. */
-type PortfolioTab = "assets" | "positions" | "krakenSimHodl" | "krakenSimMM" | "krakenSimFutures";
+type PortfolioTab = "assets" | "positions";
 
 export function Portfolio() {
   const { server } = useServer();
@@ -795,13 +802,21 @@ export function Portfolio() {
   // rather than writing it, so `/portfolio` stays the canonical URL for Assets.
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get("tab");
-  const tab: PortfolioTab =
-    rawTab === "positions" || rawTab === "krakenSimHodl" || rawTab === "krakenSimMM" || rawTab === "krakenSimFutures" ? rawTab : "assets";
-  // The simulated Kraken accounts get their own tabs, so their holdings sit beside the
-  // server's but are never added into its totals. Admin-only routes: no data, no tab.
-  const simHodl = useSimAccount("hodl");
-  const simMm = useSimAccount("mm");
-  const simFut = useSimAccount("fut");
+  const tab: PortfolioTab = rawTab === "positions" ? "positions" : "assets";
+  const simHodl = useSimAccount("hodl", false);
+  const simMm = useSimAccount("mm", false);
+  const simFut = useSimAccount("fut", false);
+  const simAccounts = useMemo(() => ([
+    { variant: "hodl" as SimVariant, pf: simHodl.pf },
+    { variant: "mm" as SimVariant, pf: simMm.pf },
+    { variant: "fut" as SimVariant, pf: simFut.pf },
+  ]), [simHodl.pf, simMm.pf, simFut.pf]);
+  const simAssets = useMemo(() => simAccounts.flatMap(({ variant, pf }) => pf ? [simAssetGroup(variant, pf)] : []), [simAccounts]);
+  const simulatedHolds = useMemo(() => simAccounts.flatMap(({ variant, pf }) => pf ? simPositions(variant, pf) : []), [simAccounts]);
+  const simsLoading = simHodl.isLoading || simMm.isLoading || simFut.isLoading;
+  const unavailableSims = ([
+    ["hodl", simHodl.error], ["mm", simMm.error], ["fut", simFut.error],
+  ] as const).filter(([, error]) => error && errorStatus(error) !== 403).map(([variant]) => SIM_TAB_LABEL[variant]);
   const setTab = (next: PortfolioTab) => {
     if (next === "assets") setSearchParams({}, { replace: true });
     else setSearchParams({ tab: next }, { replace: true });
@@ -869,10 +884,25 @@ export function Portfolio() {
   });
 
   const { data: agents } = useQuery(agentsQuery());
+  const deskActivity = (variant: SimVariant) => {
+    if (variant === "mm") {
+      return simMm.maker
+        ? { label: simMm.maker.halted ? `Market maker halted: ${simMm.maker.halted}` : simMm.maker.running ? "Market maker running" : "Market maker stopped", running: simMm.maker.running && !simMm.maker.halted }
+        : { label: "Desk status unavailable", running: false };
+    }
+    const agent = agents?.find((a) => a.slug === (variant === "hodl" ? "sim_crypto_trader" : "sim_futures_trader"));
+    const running = agent?.status === "running" || agent?.status === "active";
+    const frequency = agent?.instances?.find((instance) => instance.status === "running")?.frequency_sec;
+    const cadence = frequency === 3600 ? "hourly reviews" : frequency ? `${Math.round(frequency / 60)}m reviews` : "";
+    return {
+      label: running ? `Running${cadence ? ` · ${cadence}` : ""}` : agent ? "Desk stopped" : "Desk status unavailable",
+      running,
+    };
+  };
 
   const { data: periodHistory } = useQuery({
-    queryKey: ["portfolio-history", server, period],
-    queryFn: () => api.getPortfolioHistory(server!, period),
+    queryKey: ["portfolio-history", server, period, "live"],
+    queryFn: () => api.getPortfolioHistory(server!, period, false, true),
     enabled: !!server,
     refetchInterval: 60000,
   });
@@ -892,8 +922,9 @@ export function Portfolio() {
     () => [
       ...(positionsData?.executor_positions ?? []),
       ...(positionsData?.bot_positions ?? []),
+      ...simulatedHolds,
     ],
-    [positionsData],
+    [positionsData, simulatedHolds],
   );
 
   // Liquidity — shared with the /dex strip, and deliberately not derived from
@@ -1045,7 +1076,7 @@ export function Portfolio() {
 
       {/* Assets | Positions — the header above describes the whole portfolio,
           so it stays above the split. */}
-      <div className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1 w-fit">
+      <div role="tablist" aria-label="Portfolio view" className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1 w-fit">
         {([
           { key: "assets" as const, label: "Assets", icon: Wallet, count: null },
           {
@@ -1054,20 +1085,13 @@ export function Portfolio() {
             icon: Layers,
             // A flash of `(0)` on a portfolio that has seven positions is worse
             // than a beat of no badge, so it waits for both queries.
-            count: isLoadingHolds || isLoadingLp ? null : holds.length + lpPositions.length,
+            count: isLoadingHolds || isLoadingLp || simsLoading ? null : holds.length + lpPositions.length,
           },
-          ...(simHodl.pf
-            ? [{ key: "krakenSimHodl" as const, label: SIM_TAB_LABEL.hodl, icon: FlaskConical, count: simHodl.pf.positions.length }]
-            : []),
-          ...(simMm.pf
-            ? [{ key: "krakenSimMM" as const, label: SIM_TAB_LABEL.mm, icon: FlaskConical, count: simMm.pf.positions.length }]
-            : []),
-          ...(simFut.pf
-            ? [{ key: "krakenSimFutures" as const, label: SIM_TAB_LABEL.fut, icon: FlaskConical, count: simFut.pf.positions.length }]
-            : []),
         ]).map(({ key, label, icon: Icon, count }) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === key
@@ -1083,13 +1107,15 @@ export function Portfolio() {
           </button>
         ))}
       </div>
+      {unavailableSims.length > 0 && <p role="status" className="text-xs text-[var(--color-red)]">Could not refresh {unavailableSims.join(", ")}. Any rows still shown use the last successful observation.</p>}
 
       {/* Both tabs stay mounted and the inactive one is hidden: this is a
           toggle, not a route change, and the balance table is expensive to
           rebuild. Deferring the mount buys nothing — the queries behind
           Positions run at page level anyway, for the tab badge. */}
       <div style={{ display: tab === "assets" ? undefined : "none" }}>
-        {connectors.length === 0 ? (
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">Live totals exclude simulators. Simulated allocations are per account; futures collateral is in Assets and contract exposure is in Positions.</p>
+        {connectors.length === 0 && simAssets.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-16 text-[var(--color-text-muted)]">
             <Wallet className="h-10 w-10" />
             <p>No balances found</p>
@@ -1120,6 +1146,9 @@ export function Portfolio() {
                 {connectors.map((c) => (
                   <ConnectorRow key={c.connector} connector={c} totalPortfolio={totalUsd} convertFromUsd={convertFromUsd} currencySymbol={currencySymbol} />
                 ))}
+                {simAssets.map((c) => (
+                  <ConnectorRow key={c.connector} connector={c} totalPortfolio={c.total_usd} convertFromUsd={convertFromUsd} currencySymbol={currencySymbol} simulated activity={deskActivity(c.variant)} />
+                ))}
               </tbody>
             </table>
           </div>
@@ -1131,16 +1160,13 @@ export function Portfolio() {
           holds={holds}
           lpPositions={lpPositions}
           lpLabel={lpLabel}
-          isLoading={isLoadingHolds || isLoadingLp}
+          isLoading={isLoadingHolds || isLoadingLp || simsLoading}
           convert={convert}
           formatValue={formatValueDetailed}
           formatPnlValue={formatPnlValue}
         />
       </div>
 
-      {tab === "krakenSimHodl" && <SimAccountTab variant="hodl" />}
-      {tab === "krakenSimMM" && <SimAccountTab variant="mm" />}
-      {tab === "krakenSimFutures" && <SimAccountTab variant="fut" />}
     </div>
   );
 }

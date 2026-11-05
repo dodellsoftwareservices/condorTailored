@@ -19,6 +19,7 @@ from telegram.ext import ContextTypes
 
 from condor.alpaca_paper import AlpacaAPIError, AlpacaConfigError, AlpacaPaperClient
 from condor.fsutil import atomic_write_json
+from condor.paper_valuation import read_paper_valuation
 from condor.paths import data_dir
 from routines.base import RoutineResult
 
@@ -220,13 +221,17 @@ async def run(
         return RoutineResult(text=f"Alpaca not configured.\n\n{e}", failed=True)
 
     try:
-        positions = await alpaca.get_positions()
-        account = await alpaca.get_account()
+        valuation = await read_paper_valuation(alpaca)
         quote = (await alpaca.latest_quote(journal["benchmark"]["symbol"])).get(
             "quote", {}
         )
     except AlpacaAPIError as e:
         return RoutineResult(text=f"Could not read the paper account: {e}", failed=True)
+    if not valuation.reliable:
+        return RoutineResult(
+            text="Paper account valuation withheld: " + " ".join(valuation.notes),
+            failed=True,
+        )
 
     bid, ask = float(quote.get("bp") or 0), float(quote.get("ap") or 0)
     spy_now = (bid + ask) / 2 if bid and ask else (ask or bid or None)
@@ -237,7 +242,7 @@ async def run(
             "market_value": p.market_value,
             "unrealized_pl": p.unrealized_pl,
         }
-        for p in positions
+        for p in valuation.positions
     ]
     today = datetime.now(timezone.utc).date()
 
@@ -253,7 +258,7 @@ async def run(
                 "date": today.isoformat(),
                 "basket_value": value,
                 "basket_cost": cost,
-                "equity": account.equity,
+                "equity": valuation.equity,
                 "spy": spy_now,
             }
         )
@@ -261,4 +266,4 @@ async def run(
         atomic_write_json(journal_path(), journal)
 
     ev = evaluate(journal, pos, spy_now, today)
-    return format_report(journal, ev, account.equity)
+    return format_report(journal, ev, valuation.equity)

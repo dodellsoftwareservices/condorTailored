@@ -679,9 +679,12 @@ class EquityBarsResponse(BaseModel):
 
 
 class EquityAccount(BaseModel):
-    equity: float
+    equity: float | None
     cash: float
     buying_power: float
+    provider_equity: float | None = None
+    valuation_adjusted: bool = False
+    valuation_note: str = ""
 
 
 class EquityPosition(BaseModel):
@@ -689,6 +692,7 @@ class EquityPosition(BaseModel):
     qty: float
     market_value: float
     unrealized_pl: float
+    valuation_adjusted: bool = False
 
 
 class EquityMarketStatus(BaseModel):

@@ -92,7 +92,7 @@ export function EquityPositions({ onSelect }: { onSelect: (symbol: string) => vo
                 onClick={() => onSelect(p.symbol)}
                 className="cursor-pointer hover:bg-[var(--color-surface-hover)]"
               >
-                <td className="px-4 py-2 font-medium text-[var(--color-text)]">{p.symbol}</td>
+                <td className="px-4 py-2 font-medium text-[var(--color-text)]">{p.symbol}{p.valuation_adjusted && <span className="ml-2 text-[10px] font-normal text-[var(--color-primary)]">split estimate</span>}</td>
                 <td className="px-4 py-2 text-right tabular-nums text-[var(--color-text-muted)]">
                   {p.qty.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                 </td>

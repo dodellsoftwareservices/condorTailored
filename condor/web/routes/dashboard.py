@@ -19,6 +19,7 @@ from condor.dashboard_metrics import (
     outcome_metrics,
     risk_metrics,
 )
+from condor.paper_valuation import read_paper_valuation
 from condor.paths import data_dir
 from condor.web.auth import get_current_user, require_admin
 from condor.web.models import WebUser
@@ -103,26 +104,27 @@ async def _alpaca(period: str, now: float) -> dict:
     except Exception:
         account["notes"] = ["Alpaca paper credentials are not configured."]
         return _finish(account, period, now)
-    balance, positions, history, fills = await asyncio.gather(
-        _read(client.get_account()),
-        _read(client.get_positions()),
+    valuation, history = await asyncio.gather(
+        _read(read_paper_valuation(client)),
         _read(client.get_portfolio_history(period)),
-        _read(client.get_fill_history()),
     )
-    if (
-        isinstance(balance, Exception)
-        or number(balance.equity) is None
-        or number(balance.cash) is None
-    ):
+    if isinstance(valuation, Exception) or number(valuation.account.cash) is None:
         account["notes"] = [
             "Could not read the Alpaca paper account. Retry to reconnect."
         ]
         return _finish(account, period, now)
-    account.update(status="online", equity=balance.equity, cash=balance.cash)
-    if not isinstance(positions, Exception):
-        account["deployed"] = sum(abs(p.market_value) for p in positions)
-    else:
-        account["notes"].append("Position exposure could not be loaded.")
+    account.update(
+        status="online" if valuation.reliable else "partial",
+        equity=valuation.equity,
+        cash=valuation.account.cash,
+        deployed=(
+            sum(abs(p.market_value) for p in valuation.positions)
+            if valuation.reliable
+            else None
+        ),
+        valuation_adjusted=bool(valuation.adjusted_symbols),
+    )
+    account["notes"].extend(valuation.notes)
     if not isinstance(history, Exception):
         account["points"] = [
             {"timestamp": stamp, "equity": value}
@@ -132,9 +134,19 @@ async def _alpaca(period: str, now: float) -> dict:
         ]
     else:
         account["notes"].append("Portfolio history could not be loaded.")
-    account["points"].append({"timestamp": now, "equity": balance.equity})
-    if not isinstance(fills, Exception):
-        rows, complete = fills
+    if valuation.adjusted_since is not None:
+        # Historical broker points on/after the ex-date contain the same
+        # stale quantity. Do not draw their false cliff or invent marks.
+        account["points"] = [
+            p
+            for p in account["points"]
+            if time.strftime("%Y-%m-%d", time.gmtime(p["timestamp"]))
+            < valuation.adjusted_since.isoformat()
+        ]
+    if valuation.equity is not None:
+        account["points"].append({"timestamp": now, "equity": valuation.equity})
+    if valuation.fills_complete:
+        rows, complete = valuation.fills, True
         outcomes, volume, matched = alpaca_outcomes(rows)
         account.update(
             outcomes=outcomes,
@@ -146,7 +158,7 @@ async def _alpaca(period: str, now: float) -> dict:
                 "Closing-trade metrics need complete, matchable fill history."
             )
     else:
-        account["notes"].append("Closing-trade history could not be loaded.")
+        account["notes"].append("Closing-trade history is incomplete.")
     _merge_observed(account, now)
     return _finish(account, period, now)
 
@@ -278,7 +290,8 @@ def _combined(accounts: list[dict], now: float) -> dict:
         "volume": total("volume"),
         "fees": total("fees"),
         "points": series,
-        "notes": [],
+        "notes": [note for account in accounts for note in account.get("notes", [])],
+        "valuation_adjusted": any(a.get("valuation_adjusted") for a in accounts),
         "outcomes_complete": all(a["outcomes_complete"] for a in accounts),
         "profit_factor": (
             total("gross_profit") / total("gross_loss")

@@ -165,9 +165,17 @@ def desk_stub(*, equity, cash, gross, start="50000"):
 
 @pytest.fixture
 def api_client(monkeypatch):
+    from condor import paper_valuation
+
     alpaca = SimpleNamespace(
         get_account=AsyncMock(return_value=SimpleNamespace(equity=100500, cash=98000)),
-        get_positions=AsyncMock(return_value=[SimpleNamespace(market_value=2500)]),
+        get_positions=AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    symbol="AAPL", qty=1, market_value=2500, unrealized_pl=0
+                )
+            ]
+        ),
         get_portfolio_history=AsyncMock(
             return_value={"timestamp": [NOW - 2 * DAY], "equity": [100000]}
         ),
@@ -177,6 +185,7 @@ def api_client(monkeypatch):
                 True,
             )
         ),
+        get_split_announcements=AsyncMock(return_value=[]),
     )
     sim = SimpleNamespace(
         dashboard=AsyncMock(
@@ -213,6 +222,7 @@ def api_client(monkeypatch):
         ),
     )
     monkeypatch.setattr(dashboard, "_cache", {})
+    monkeypatch.setattr(paper_valuation, "_cache", None)
     monkeypatch.setattr(dashboard.time, "time", lambda: NOW)
     monkeypatch.setenv("EQUITY_MAX_ORDER_NOTIONAL", "2500")
     # `require_admin` re-reads the role from ConfigManager rather than trusting

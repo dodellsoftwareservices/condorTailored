@@ -16,6 +16,11 @@ def transport(monkeypatch):
     metrics = EquityMetrics()
     monkeypatch.setattr(A, "equity_metrics", metrics)
 
+    async def no_splits(_self):
+        return []
+
+    monkeypatch.setattr(A.AlpacaPaperClient, "get_split_announcements", no_splits)
+
     def install(*, status=200, body='{"status":"accepted","id":"order-1"}', error=None):
         class Response:
             async def __aenter__(self):

@@ -17,13 +17,15 @@ test-venue to mainnet mapping, and a package of the same name would shadow it.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import aiohttp
 
@@ -33,6 +35,8 @@ from condor.equity_observability import (
     equity_correlation_id,
     equity_metrics,
 )
+from condor.fsutil import atomic_write_json
+from condor.paths import data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +48,40 @@ _ALLOWED_TRADING_HOSTS = frozenset({PAPER_TRADING_HOST})
 _ALLOWED_DATA_HOSTS = frozenset({DATA_HOST})
 
 _TIMEOUT = aiohttp.ClientTimeout(total=20)
+_split_cache: tuple[float, str, list[dict]] | None = None
+_SPLIT_REGISTRY = "paper_corporate_actions.json"
+
+
+def _stored_splits() -> list[dict]:
+    path = data_dir() / _SPLIT_REGISTRY
+    if not path.exists():
+        return []
+    try:
+        rows = json.loads(path.read_text())
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise ValueError("expected an array of actions")
+        return rows
+    except (OSError, ValueError) as exc:
+        raise AlpacaAPIError(
+            "Local paper corporate-action registry is unreadable"
+        ) from exc
+
+
+def _remember_splits(rows: list[dict]) -> list[dict]:
+    merged: dict[tuple[str, str], dict] = {}
+    for row in [*_stored_splits(), *rows]:
+        symbol = str(
+            row.get("target_symbol") or row.get("initiating_symbol") or ""
+        ).upper()
+        ex_date = str(row.get("ex_date") or "")
+        if str(row.get("ca_type") or "").lower() == "split" and symbol and ex_date:
+            merged[(symbol, ex_date)] = row
+    result = list(merged.values())
+    try:
+        atomic_write_json(data_dir() / _SPLIT_REGISTRY, result, indent=2)
+    except OSError as exc:
+        raise AlpacaAPIError("Could not save paper corporate-action registry") from exc
+    return result
 
 
 class AlpacaConfigError(RuntimeError):
@@ -258,6 +296,44 @@ class AlpacaPaperClient:
             seen.add(cursor)
         return rows, False
 
+    async def get_split_announcements(self) -> list[dict]:
+        """Recent and upcoming splits from Alpaca's corporate-action feed.
+
+        Paper accounts do not process splits reliably, so both valuation and
+        pre-trade checks use this feed. Cache the calendar, not account state.
+        """
+        global _split_cache
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        key = today.isoformat()
+        if (
+            _split_cache
+            and _split_cache[1] == key
+            and time.monotonic() - _split_cache[0] < 600
+        ):
+            return _split_cache[2]
+
+        async def window(since, until):
+            return await self._request(
+                "GET",
+                self._trading_host,
+                "/v2/corporate_actions/announcements",
+                params={
+                    "ca_types": "Split",
+                    "since": since.isoformat(),
+                    "until": until.isoformat(),
+                },
+            )
+
+        past, future = await asyncio.gather(
+            window(today - timedelta(days=89), today),
+            window(today + timedelta(days=1), today + timedelta(days=89)),
+        )
+        if not isinstance(past, list) or not isinstance(future, list):
+            raise AlpacaAPIError("Invalid corporate-action response from Alpaca")
+        remembered = _remember_splits([*past, *future])
+        _split_cache = (time.monotonic(), key, remembered)
+        return remembered
+
     async def submit_notional_order(
         self, symbol: str, notional: float, side: str = "buy"
     ) -> dict:
@@ -275,6 +351,28 @@ class AlpacaPaperClient:
             raise ValueError("notional must be finite and positive at cent precision")
         if side not in ("buy", "sell"):
             raise ValueError("side must be buy or sell")
+        if side == "buy":
+            # An announced split can leave paper quantity stale while the
+            # market price changes. Reject before the order reaches Alpaca.
+            today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+            for action in await self.get_split_announcements():
+                if (
+                    str(
+                        action.get("target_symbol")
+                        or action.get("initiating_symbol")
+                        or ""
+                    ).upper()
+                    == symbol.upper()
+                    and str(action.get("ca_type") or "").lower() == "split"
+                    and str(action.get("ex_date") or "")
+                    >= (datetime.fromisoformat(today) - timedelta(days=30))
+                    .date()
+                    .isoformat()
+                ):
+                    raise ValueError(
+                        f"{symbol.upper()} has an announced recent/upcoming split; "
+                        "paper buys are blocked until its account history is reconciled"
+                    )
         payload = {
             "symbol": symbol.upper(),
             "notional": f"{notional:.2f}",

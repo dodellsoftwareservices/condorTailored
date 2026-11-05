@@ -65,6 +65,12 @@ class FakeAlpaca:
             raise self._positions_error
         return self._positions
 
+    async def get_fill_history(self):
+        return [], True
+
+    async def get_split_announcements(self):
+        return []
+
     async def is_market_open(self):
         if self._market_status_error:
             raise self._market_status_error
@@ -141,6 +147,9 @@ def test_account_reachable_even_with_both_flags_off(monkeypatch):
         "equity": 10_000.0,
         "cash": 5_000.0,
         "buying_power": 9_000.0,
+        "provider_equity": 10_000.0,
+        "valuation_adjusted": False,
+        "valuation_note": "",
     }
 
 
@@ -151,7 +160,13 @@ def test_positions_success(monkeypatch):
     response = client.get("/api/v1/paper/equities/positions")
     assert response.status_code == 200
     assert response.json() == [
-        {"symbol": "VOO", "qty": 2.0, "market_value": 234.5, "unrealized_pl": 1.2}
+        {
+            "symbol": "VOO",
+            "qty": 2.0,
+            "market_value": 234.5,
+            "unrealized_pl": 1.2,
+            "valuation_adjusted": False,
+        }
     ]
 
 

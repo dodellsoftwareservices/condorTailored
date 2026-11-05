@@ -418,7 +418,7 @@ export interface SimPortfolio {
   start_cash: string;
   total_return_pct: string;
   gross_exposure: string;
-  positions: { asset: string; qty: string; side?: "long" | "short"; avg_cost?: string; price?: string; value?: string; unrealized_pnl?: string }[];
+  positions: { asset: string; symbol?: string; qty: string; side?: "long" | "short"; avg_cost?: string; price?: string; mid?: string; value?: string; unrealized_pnl?: string }[];
   open_orders: number;
   volume_30d: string;
   /** Futures account only. */
@@ -515,6 +515,7 @@ export interface DashboardAccount {
   outcomes_complete: boolean;
   points: { timestamp: number; equity: number }[];
   notes: string[];
+  valuation_adjusted?: boolean;
 }
 
 export interface DashboardResponse {
@@ -584,9 +585,12 @@ export interface EquityBarsResponse {
 }
 
 export interface EquityAccount {
-  equity: number;
+  equity: number | null;
   cash: number;
   buying_power: number;
+  provider_equity?: number | null;
+  valuation_adjusted?: boolean;
+  valuation_note?: string;
 }
 
 export interface EquityPosition {
@@ -594,6 +598,7 @@ export interface EquityPosition {
   qty: number;
   market_value: number;
   unrealized_pl: number;
+  valuation_adjusted?: boolean;
 }
 
 export interface EquityMarketStatus {
@@ -3244,9 +3249,9 @@ export const api = {
   getSimFutPortfolio: () => apiFetch<SimPortfolio>("/api/v1/sim/kraken/fut/portfolio"),
   getSimFutCosts: () => apiFetch<SimCosts>("/api/v1/sim/kraken/fut/costs"),
 
-  getPortfolioHistory: (server: string, range = "1D", breakdown = false) =>
+  getPortfolioHistory: (server: string, range = "1D", breakdown = false, liveOnly = false) =>
     apiFetch<PortfolioHistoryResponse>(
-      `/api/v1/servers/${encodeURIComponent(server)}/portfolio/history?range=${encodeURIComponent(range)}${breakdown ? "&breakdown=true" : ""}`,
+      `/api/v1/servers/${encodeURIComponent(server)}/portfolio/history?range=${encodeURIComponent(range)}${breakdown ? "&breakdown=true" : ""}${liveOnly ? "&live_only=true" : ""}`,
     ),
 
   getBots: (server: string) =>

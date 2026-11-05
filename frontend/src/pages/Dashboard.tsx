@@ -101,6 +101,7 @@ export function Dashboard() {
     </div>
     {error && <div className="dashboard-notice is-error" role="alert">Could not refresh the dashboard. {error.message}<button onClick={refresh}>Retry</button></div>}
     {partial && <div className="dashboard-notice" role="status">Some accounts are unavailable. Combined totals stay unavailable until every account reports; select an account to inspect its results.</div>}
+    {mode === "paper" && account?.valuation_adjusted && <div className="dashboard-notice is-corporate-action" role="status"><strong>Split-adjusted paper estimate.</strong> {account.notes.find((note) => note.includes("split:")) ?? "Alpaca Paper has not adjusted its share count for a split."} Broker buying power still uses Alpaca's raw account.</div>}
     {mode === "live" && <div className="dashboard-notice">{server ? `Connected exchange balances on ${server}. Paper funds are shown separately. Starting capital and execution-level performance are not yet available for live accounts.` : "Select a server in the toolbar to see connected live exchange balances. Paper accounts work without a server."}</div>}
     <div className="dashboard-section-heading"><div><span>01 / CAPITAL</span><h2>At a glance</h2></div><p>{mode === "paper" ? "Starting capital from the paper accounts shown here." : "Balances from the selected live server."}</p></div>
     <div className="dashboard-metrics dashboard-metrics-primary">

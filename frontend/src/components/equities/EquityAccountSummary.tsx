@@ -33,27 +33,30 @@ export function EquityAccountSummary() {
   const isOpen = statusQuery.data?.is_open;
 
   return (
-    <div className="flex flex-wrap items-center gap-6 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
-      <Stat label="Equity" value={account?.equity} loading={accountQuery.isLoading} />
-      <Stat label="Cash" value={account?.cash} loading={accountQuery.isLoading} />
-      <Stat
-        label="Buying power"
-        value={account?.buying_power}
-        loading={accountQuery.isLoading}
-      />
-      <div className="ml-auto flex items-center gap-1.5 text-xs">
-        <span
-          className={`h-2 w-2 rounded-full ${
-            isOpen ? "bg-[var(--color-green)]" : "bg-[var(--color-text-muted)]"
-          }`}
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
+      {account?.valuation_note && <p className="mb-3 border-l-2 border-[var(--color-primary)] pl-3 text-xs text-[var(--color-text)]">{account.valuation_note}</p>}
+      <div className="flex flex-wrap items-center gap-6">
+        <Stat label={account?.valuation_adjusted ? "Estimated equity" : "Equity"} value={account?.equity ?? undefined} loading={accountQuery.isLoading} />
+        <Stat label="Cash" value={account?.cash} loading={accountQuery.isLoading} />
+        <Stat
+          label="Broker buying power"
+          value={account?.buying_power}
+          loading={accountQuery.isLoading}
         />
-        <span className="text-[var(--color-text-muted)]">
-          {statusQuery.isLoading
-            ? "Checking market…"
-            : isOpen
-              ? "Market open"
-              : "Market closed"}
-        </span>
+        <div className="ml-auto flex items-center gap-1.5 text-xs">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              isOpen ? "bg-[var(--color-green)]" : "bg-[var(--color-text-muted)]"
+            }`}
+          />
+          <span className="text-[var(--color-text-muted)]">
+            {statusQuery.isLoading
+              ? "Checking market…"
+              : isOpen
+                ? "Market open"
+                : "Market closed"}
+          </span>
+        </div>
       </div>
     </div>
   );

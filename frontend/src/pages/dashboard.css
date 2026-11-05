@@ -21,7 +21,8 @@
 .dashboard-hub button:focus-visible, .dashboard-hub a:focus-visible, .dashboard-hub select:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
 .dashboard-refresh-button { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 8px; }
 .dashboard-refresh-button:disabled { opacity: .5; cursor: default; }
-.dashboard-notice { background: color-mix(in srgb, var(--color-yellow) 5%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-yellow) 25%, var(--color-border)); padding: 12px 14px; margin-bottom: 16px; color: var(--color-text-muted); border-radius: 4px; line-height: 1.6; font-size: 11px; }
+.dashboard-notice { background: color-mix(in srgb, var(--color-red) 5%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-red) 25%, var(--color-border)); padding: 12px 14px; margin-bottom: 16px; color: var(--color-text-muted); border-radius: 4px; line-height: 1.6; font-size: 11px; }
+.dashboard-notice.is-corporate-action { background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border)); color: var(--color-text); }
 .dashboard-notice.is-error { border-color: color-mix(in srgb, var(--color-red) 40%, var(--color-border)); }
 .dashboard-notice button { margin-left: 12px; text-decoration: underline; color: var(--color-primary); cursor: pointer; }
 .dashboard-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }

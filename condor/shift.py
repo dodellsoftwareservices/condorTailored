@@ -95,11 +95,12 @@ MAX_HOURS = 24
 #: unspent for ticks that cost more than their average.
 HEADROOM = 0.9
 
-#: The testnet and sandbox connectors the Hummingbot API offers. A profile's
+#: Testnet/sandbox connectors and the local simulated Kraken account. A profile's
 #: connector must be one of these: the point of a shift is paper money, and a
 #: typo that lands on a mainnet connector must fail here, not at the exchange.
 TEST_VENUES = frozenset(
     {
+        "kraken_sim",
         "binance_perpetual_testnet",
         "bybit_perpetual_testnet",
         "bybit_testnet",
@@ -118,6 +119,8 @@ TEST_VENUES = frozenset(
         "architect_perpetual_sandbox",
     }
 )
+
+SIM_PORTFOLIOS = {"kraken_sim": "/sim/kraken/portfolio"}
 
 #: The mainnet name behind each test venue. A trading context that names one of
 #: these is worth a second look: it may be a candle source (legitimate: candles
@@ -440,8 +443,8 @@ def validate_profile(
         if loop.connector not in TEST_VENUES:
             error(
                 f"{where}.connector",
-                f"'{loop.connector}' is not a test venue (a mainnet name would trade real "
-                f"money); test venues: {', '.join(sorted(TEST_VENUES))}",
+                f"'{loop.connector}' is not a paper venue (a mainnet name would trade real "
+                f"money); paper venues: {', '.join(sorted(TEST_VENUES))}",
             )
         for key in loop.config:
             if key in RESERVED_CONFIG_KEYS:
@@ -792,7 +795,9 @@ def build_plan(
     planned_loops: list[PlanLoop] = []
     for loop in live:
         runnable: bool | None = (
-            None if credentials is None else loop.connector in credentials
+            True
+            if loop.connector in SIM_PORTFOLIOS
+            else None if credentials is None else loop.connector in credentials
         )
         reason = (
             ""
@@ -1151,6 +1156,7 @@ class Preflight:
     checks: list[Check] = field(default_factory=list)
     skipped: dict[str, str] = field(default_factory=dict)
     balances: list[dict[str, Any]] | None = None
+    sim_costs_start: dict[str, Any] | None = None
     runnable: list[str] = field(default_factory=list)
 
     def add(self, name: str, state: str, detail: str, loop: str | None = None) -> Check:
@@ -1237,16 +1243,19 @@ async def run_preflight(
         )
         return pre
 
-    try:
-        info = await hb.get("/")
-        pre.add(
-            "hummingbot api",
-            PASS,
-            f"{hb.base_url} {info.get('status', 'answers') if isinstance(info, dict) else 'answers'}",
-        )
-    except ShiftError as exc:
-        pre.add("hummingbot api", FAIL, str(exc))
-        return pre
+    if any(loop.connector not in SIM_PORTFOLIOS for loop in live):
+        try:
+            info = await hb.get("/")
+            pre.add(
+                "hummingbot api",
+                PASS,
+                f"{hb.base_url} {info.get('status', 'answers') if isinstance(info, dict) else 'answers'}",
+            )
+        except ShiftError as exc:
+            pre.add("hummingbot api", FAIL, str(exc))
+            return pre
+    else:
+        pre.add("hummingbot api", PASS, "not needed for simulated Kraken")
 
     # The server's environment, not this process's: the key the loops use is the
     # one the *server* loaded at boot, and a ``.env`` edited since is not in it.
@@ -1317,14 +1326,21 @@ async def run_preflight(
         )
         return pre
 
-    try:
-        credentials = await hb.get(f"/accounts/{ACCOUNT}/credentials")
-        registered = set(credentials) if isinstance(credentials, list) else set()
-    except ShiftError as exc:
-        pre.add("credentials", FAIL, f"could not list {ACCOUNT}'s credentials: {exc}")
-        return pre
+    registered: set[str] = set()
+    if any(loop.connector not in SIM_PORTFOLIOS for loop in live):
+        try:
+            credentials = await hb.get(f"/accounts/{ACCOUNT}/credentials")
+            registered = set(credentials) if isinstance(credentials, list) else set()
+        except ShiftError as exc:
+            pre.add(
+                "credentials", FAIL, f"could not list {ACCOUNT}'s credentials: {exc}"
+            )
+            return pre
 
     for loop in live:
+        if loop.connector in SIM_PORTFOLIOS:
+            pre.add("credential", PASS, "simulated account; no exchange key", loop.id)
+            continue
         if loop.connector not in registered:
             pre.skipped[loop.id] = (
                 f"no credential for {loop.connector} registered in {ACCOUNT} "
@@ -1340,19 +1356,25 @@ async def run_preflight(
             l for l in live if l.connector == connector and l.id not in pre.skipped
         ]
         try:
-            state_json = await hb.post(
-                "/portfolio/state",
-                {
-                    "account_names": [ACCOUNT],
-                    "connector_names": [connector],
-                    "refresh": True,
-                },
-            )
-            rows = [
-                r
-                for r in shift_report.summarize_balances(state_json)
-                if r["connector"] == connector
-            ]
+            if connector in SIM_PORTFOLIOS:
+                state_json = await condor.get(SIM_PORTFOLIOS[connector])
+                rows = shift_report.summarize_sim_balances(state_json, connector)
+                if connector == "kraken_sim":
+                    pre.sim_costs_start = await condor.get("/sim/kraken/costs")
+            else:
+                state_json = await hb.post(
+                    "/portfolio/state",
+                    {
+                        "account_names": [ACCOUNT],
+                        "connector_names": [connector],
+                        "refresh": True,
+                    },
+                )
+                rows = [
+                    r
+                    for r in shift_report.summarize_balances(state_json)
+                    if r["connector"] == connector
+                ]
         except ShiftError as exc:
             for loop in owners:
                 pre.skipped[loop.id] = f"balance unreachable on {connector}: {exc}"
@@ -1421,7 +1443,10 @@ async def run_preflight(
             i["agent_id"]
             for i in (detail_json or {}).get("instances", [])
             if i.get("status") in ("running", "paused")
-            and (i.get("trading_context") or "") == loop.trading_context
+            and (
+                loop.connector in SIM_PORTFOLIOS
+                or (i.get("trading_context") or "") == loop.trading_context
+            )
         ]
         if clash:
             pre.add(
@@ -1437,6 +1462,21 @@ async def run_preflight(
                 "no live session with the same context",
                 loop.id,
             )
+        if loop.connector in SIM_PORTFOLIOS:
+            try:
+                orders = await condor.get("/sim/kraken/orders")
+                open_orders = (orders or {}).get("open") or []
+                pre.add(
+                    "existing sim orders",
+                    FAIL if open_orders else PASS,
+                    (
+                        f"[{loop.id}] {len(open_orders)} open order(s)"
+                        if open_orders
+                        else f"[{loop.id}] none"
+                    ),
+                )
+            except ShiftError as exc:
+                pre.add("existing sim orders", FAIL, f"[{loop.id}] {exc}")
     return pre
 
 
@@ -2341,6 +2381,63 @@ class ShiftRunner:
                 return
             await self.clock.sleep(min(10.0, self.poll_sec))
 
+    async def _capture_end_balances(self) -> list[dict[str, Any]]:
+        connectors = sorted(
+            {
+                meta["connector"]
+                for meta in self.record.loops.values()
+                if meta.get("runnable", True)
+            }
+        )
+        rows: list[dict[str, Any]] = []
+        for connector in connectors:
+            if connector in SIM_PORTFOLIOS:
+                state = await self.condor.get(SIM_PORTFOLIOS[connector])
+                sim_rows = shift_report.summarize_sim_balances(state, connector)
+                if not sim_rows:
+                    raise ShiftError(f"{connector} returned no usable portfolio")
+                rows.extend(sim_rows)
+            elif self.hb is not None:
+                state = await self.hb.post(
+                    "/portfolio/state",
+                    {
+                        "account_names": [ACCOUNT],
+                        "connector_names": [connector],
+                        "refresh": True,
+                    },
+                )
+                rows.extend(shift_report.summarize_balances(state))
+            else:
+                raise ShiftError(f"no Hummingbot client for {connector}")
+        return rows
+
+    async def _cancel_sim_orders(self) -> None:
+        if not any(
+            meta.get("connector") == "kraken_sim" and meta.get("runnable", True)
+            for meta in self.record.loops.values()
+        ):
+            return
+        try:
+            payload = await self.condor.get("/sim/kraken/orders")
+            open_orders = (payload or {}).get("open") or []
+            for order in open_orders:
+                order_id = str(order.get("id") or "")
+                if order_id:
+                    await self.condor.request(
+                        "DELETE", f"/sim/kraken/orders/{order_id}"
+                    )
+                    self._event("info", f"cancelled simulated order {order_id}")
+            remaining = (await self.condor.get("/sim/kraken/orders") or {}).get(
+                "open"
+            ) or []
+            if remaining:
+                self._event(
+                    "alert",
+                    f"{len(remaining)} simulated orders still open at shift end",
+                )
+        except ShiftError as exc:
+            self._event("alert", f"could not cancel simulated orders: {exc}")
+
     async def finalize(self, reason: str) -> None:
         """Stop what must be stopped, capture the end, write the report."""
         now = self.clock.now()
@@ -2359,26 +2456,12 @@ class ShiftRunner:
         data = self.record.data
         if not detaching:
             data["ended_at"] = round(self.clock.now(), 3)
-            if self.hb is not None:
-                try:
-                    state = await self.hb.post(
-                        "/portfolio/state",
-                        {
-                            "account_names": [ACCOUNT],
-                            "connector_names": sorted(
-                                {
-                                    m["connector"]
-                                    for m in data["loops"].values()
-                                    if m.get("runnable", True)
-                                }
-                            ),
-                            "refresh": True,
-                        },
-                    )
-                    data["balances_end"] = shift_report.summarize_balances(state)
-                except ShiftError as exc:
-                    data["balances_end_error"] = str(exc)[:200]
-                    self._event("warn", f"end balances not captured: {exc}")
+            await self._cancel_sim_orders()
+            try:
+                data["balances_end"] = await self._capture_end_balances()
+            except ShiftError as exc:
+                data["balances_end_error"] = str(exc)[:200]
+                self._event("warn", f"end balances not captured: {exc}")
         alerts = [e for e in data.get("events", []) if e.get("kind") == "alert"]
         data["state"] = (
             "detached"
@@ -2530,6 +2613,7 @@ def _new_record(
             "argv": sys.argv[1:],
         },
         "balances_start": pre.balances,
+        "sim_costs_start": pre.sim_costs_start,
         "server_boot_ids": [],
         "loops": loops,
         "events": [],
@@ -2632,18 +2716,22 @@ async def cmd_plan(
             print(issue.render())
         print("cannot plan an invalid profile; run `validate`")
         return 1
-    owns = hb is None
+    sim_only = all(l.connector in SIM_PORTFOLIOS for l in enabled_loops(profile))
+    owns = hb is None and not sim_only
     if owns:
         try:
             _condor, hb = make_clients()
             await _condor.aclose()
         except ShiftError:
             hb = None
-    try:
-        credentials, note = await _credentials(hb)
-    finally:
-        if owns and hb is not None:
-            await hb.aclose()
+    if sim_only:
+        credentials, note = set(), "local simulator; no exchange credential"
+    else:
+        try:
+            credentials, note = await _credentials(hb)
+        finally:
+            if owns and hb is not None:
+                await hb.aclose()
     plan = build_plan(
         profile,
         now=now if now is not None else time.time(),
