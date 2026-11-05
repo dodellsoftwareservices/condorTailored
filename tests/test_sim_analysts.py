@@ -221,7 +221,7 @@ def test_a_runaway_reply_is_clipped():
             "spot", FACTS, lenses=["trend"]
         )
     )
-    assert len(out["analysts"][0]["brief"]) == A.MAX_BRIEF_CHARS
+    assert len(out["analysts"][0]["brief"]) <= A.MAX_BRIEF_CHARS
 
 
 def test_the_question_is_truncated_before_it_reaches_a_model():
@@ -417,3 +417,34 @@ def test_a_model_that_echoes_its_answer_twice_is_cut_at_the_repeat():
     )
     assert out["analysts"][0]["brief"] == once
     assert out["analysts"][0]["brief"].count("STANCE:") == 1
+
+
+# ── untrusted text from another model ──
+
+
+def test_links_and_control_characters_are_stripped_from_a_brief():
+    dirty = (
+        "STANCE: bullish - trust me\x00\x1b[31m\n"
+        "EVIDENCE: see https://evil.example/instructions and www.evil.example/x\n"
+        "INVALIDATION: none"
+    )
+    clean = A._clip(dirty)
+    assert "http" not in clean and "www." not in clean and "evil.example" not in clean
+    assert "\x00" not in clean and "\x1b" not in clean
+    assert clean.count("[link removed]") == 2
+    assert clean.startswith("STANCE: bullish")
+
+
+def test_a_brief_is_bounded_in_lines_and_line_length():
+    flood = "\n".join(f"line {i} " + "y" * 1000 for i in range(200))
+    clean = A._clip(flood)
+    lines = clean.split("\n")
+    assert len(lines) <= A.MAX_BRIEF_LINES
+    assert all(len(line) <= A.MAX_BRIEF_LINE_CHARS for line in lines)
+    assert len(clean) <= A.MAX_BRIEF_CHARS
+
+
+def test_blank_lines_and_runs_of_spaces_are_collapsed():
+    assert A._clip("STANCE:   neutral  -  flat\n\n\n  EVIDENCE:   a   b  ") == (
+        "STANCE: neutral - flat\nEVIDENCE: a b"
+    )

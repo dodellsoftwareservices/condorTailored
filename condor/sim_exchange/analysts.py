@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 import statistics
 import time
 from collections.abc import Awaitable, Callable
@@ -211,8 +212,29 @@ async def default_runner(model: str, system: str, user: str, *, caller: str) -> 
         await client.stop()
 
 
+_URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+MAX_BRIEF_LINES = 14
+MAX_BRIEF_LINE_CHARS = 300
+
+
+def _sanitize(text: str) -> str:
+    """Reduce a free model's reply to plain, bounded text before the desk reads it.
+
+    The brief lands in the paid desk model's context as a tool result, and it is text
+    from another model, so it is untrusted input: no links, no control characters, a
+    bounded number of short lines. The desk's real protection is the owner-enforced
+    limits on every order; this only narrows what a hallucinating or manipulated
+    analyst can slip into the desk's context.
+    """
+    text = "".join(ch for ch in str(text) if ch == "\n" or ch.isprintable())
+    text = _URL.sub("[link removed]", text)
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    lines = [line[:MAX_BRIEF_LINE_CHARS] for line in lines if line]
+    return "\n".join(lines[:MAX_BRIEF_LINES])
+
+
 def _clip(text: str) -> str:
-    text = str(text).strip()
+    text = _sanitize(text)
     # Some free models echo the whole answer a second time. A brief has exactly one
     # STANCE line, so cut at the repeat rather than hand the desk the same text twice.
     repeat = text.find("STANCE:", len("STANCE:"))
